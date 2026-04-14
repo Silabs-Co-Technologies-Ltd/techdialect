@@ -1,5 +1,5 @@
 # =============================================================================
-#  TECHDIALECT TRANSLATION ENGINE  v6.0
+#  TECHDIALECT TRANSLATION ENGINE  v6.1
 #  Multi-user · Admin approval · User-managed languages · PythonAnywhere ready
 #  Single-file Flask app · SQLite · HuggingFace Inference API · Bootstrap 5
 #
@@ -49,7 +49,7 @@
 #  ║                /admin/messages  (admin inbox + export + clear)          ║
 #  ╚══════════════════════════════════════════════════════════════════════════╝
 
-import os, csv, io, sqlite3, difflib, datetime, textwrap, re, hashlib
+import os, csv, io, sqlite3, difflib, datetime, textwrap, re, hashlib, base64
 from functools import wraps
 
 from flask import (
@@ -210,6 +210,13 @@ def init_db():
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""")
 
+    # ── v6.1 migration: add profile_photo column if missing ─────────────
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN profile_photo TEXT")
+        conn.commit()
+    except Exception:
+        pass  # column already exists — safe to ignore
+
     # Indexes
     for sql in [
         "CREATE INDEX IF NOT EXISTS idx_trans_lang     ON translations (target_lang)",
@@ -318,6 +325,16 @@ def db_user_contrib_count(uid):
     return get_db().execute(
         "SELECT COUNT(*) FROM translations WHERE added_by=?", (uid,)
     ).fetchone()[0]
+
+def db_get_photo(uid):
+    """Return base64 profile photo string for a user, or None."""
+    row = get_db().execute("SELECT profile_photo FROM users WHERE id=?", (uid,)).fetchone()
+    return row["profile_photo"] if row and row["profile_photo"] else None
+
+def db_set_photo(uid, b64_str):
+    db = get_db()
+    db.execute("UPDATE users SET profile_photo=? WHERE id=?", (b64_str, uid))
+    db.commit()
 
 def db_leaderboard(limit=10):
     return get_db().execute(
@@ -578,7 +595,16 @@ BADGE_HTML = """
 <div class="badge-card">
   <div class="brand">TECH<span>DIALECT</span></div>
   <div class="motto">TECHNOLOGIA OMNIBUS</div>
+  {% if user_photo %}
+  <div style="margin:1rem 0 .5rem">
+    <img src="data:image/jpeg;base64,{{ user_photo }}"
+         style="width:90px;height:90px;border-radius:50%;object-fit:cover;
+                border:4px solid {{ badge_colour }};
+                box-shadow:0 0 20px {{ badge_colour }}66">
+  </div>
+  {% else %}
   <div class="badge-emoji">{{ badge_emoji }}</div>
+  {% endif %}
   <div class="badge-level">{{ badge_label }} Contributor</div>
   <div class="badge-name">{{ username }}</div>
   <div class="badge-count">{{ contrib_count }} translation{{ 's' if contrib_count != 1 else '' }} contributed</div>
@@ -590,6 +616,14 @@ BADGE_HTML = """
   {% endif %}
   <div class="url">
     <a href="https://silabs.pythonanywhere.com">silabs.pythonanywhere.com</a>
+  </div>
+  <div style="margin-top:.6rem">
+    <a href="/badge/{{ username }}/download"
+       style="display:inline-block;background:{{ badge_colour }};color:#fff;
+              text-decoration:none;padding:.3rem 1rem;border-radius:2rem;
+              font-size:.75rem;font-weight:700;">
+      ⬇ Download PNG Badge
+    </a>
   </div>
   {% if next_label %}
   <div class="next-badge">Next: <span>{{ next_emoji }} {{ next_label }}</span> at {{ next_at }} contributions</div>
@@ -681,9 +715,12 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
       {% endif %}
       <!-- User badge -->
       <a href="{{ url_for('badge_card', username=user.username) }}" target="_blank"
-         class="user-badge text-decoration-none"
+         class="user-badge text-decoration-none d-flex align-items-center gap-1"
          style="background:{{ badge_colour }}22;border:1px solid {{ badge_colour }}88;color:{{ badge_colour }}">
-        {{ badge_emoji }} {{ badge_label }}
+        {% if user_photo %}<img src="data:image/jpeg;base64,{{ user_photo }}"
+             style="width:22px;height:22px;border-radius:50%;object-fit:cover;border:1px solid {{ badge_colour }}">
+        {% else %}{{ badge_emoji }}{% endif %}
+        {{ badge_label }}
       </a>
       <a href="{{ url_for('propose_language') }}" class="chip text-decoration-none text-primary">
         <i class="bi bi-plus-circle"></i>Add Language
@@ -982,9 +1019,76 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
   </div>
 </div>
 
+<!-- PASSWORD CHANGE MODAL -->
+<div class="modal fade" id="pwModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-lock me-2"></i>Change Password</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form method="POST" action="/change_password" id="pwForm">
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Current Password</label>
+            <input type="password" name="current_password" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">New Password</label>
+            <input type="password" name="new_password" class="form-control" required minlength="6">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Confirm New Password</label>
+            <input type="password" name="confirm_password" class="form-control" required minlength="6">
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary fw-semibold flex-grow-1">Update Password</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PROFILE PHOTO MODAL -->
+<div class="modal fade" id="photoModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-person-circle me-2"></i>Edit Profile Photo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if user_photo %}
+        <div class="text-center mb-3">
+          <img src="data:image/jpeg;base64,{{ user_photo }}" alt="Current photo"
+               style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid {{ badge_colour }}">
+          <div class="text-muted small mt-1">Current photo</div>
+        </div>
+        {% endif %}
+        <form method="POST" action="/profile" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Upload New Photo</label>
+            <input type="file" name="photo" class="form-control" accept="image/*" required>
+            <div class="form-text">JPG/PNG · Max 2MB · Square crop recommended</div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary fw-semibold flex-grow-1"><i class="bi bi-upload me-2"></i>Upload Photo</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <footer class="text-center text-muted small py-3 border-top bg-white">
-  Techdialect Engine v6.0 &nbsp;·&nbsp; Logged in as <strong>{{ user.username }}</strong>
+  Techdialect Engine v6.1 &nbsp;·&nbsp; Logged in as <strong>{{ user.username }}</strong>
   &nbsp;·&nbsp; <a href="/badge/{{ user.username }}" target="_blank" class="text-decoration-none" style="color:{{ badge_colour }}">{{ badge_emoji }} My Badge</a>
+  &nbsp;·&nbsp; <a href="/badge/{{ user.username }}/download" class="text-decoration-none text-success fw-semibold"><i class="bi bi-download"></i> Download Badge</a>
+  &nbsp;·&nbsp; <a href="#" data-bs-toggle="modal" data-bs-target="#photoModal" class="text-decoration-none text-primary"><i class="bi bi-person-circle"></i> Profile Photo</a>
+  &nbsp;·&nbsp; <a href="#" data-bs-toggle="modal" data-bs-target="#pwModal" class="text-decoration-none text-secondary"><i class="bi bi-lock"></i> Change Password</a>
   &nbsp;·&nbsp; <a href="/export_csv" class="text-success text-decoration-none fw-semibold"><i class="bi bi-download"></i> Export All</a>
 </footer>
 
@@ -1272,6 +1376,7 @@ def render_main(result=None, last_query="", last_category="General", lang=None):
         badge_emoji=emoji, badge_label=label, badge_colour=colour,
         unread_msgs=db_unread_count() if u and u["role"]=="admin" else 0,
         get_badge=get_badge,
+        user_photo=db_get_photo(u["id"]) if u else None,
     )
 
 # =============================================================================
@@ -1338,33 +1443,29 @@ def register():
 def logout():
     session.clear(); flash("You have been logged out.","info"); return redirect(url_for("login"))
 
-@app.route("/change_password", methods=["GET","POST"])
+@app.route("/change_password", methods=["POST"])
 @login_required
 def change_password():
-    u = current_user()
-    if request.method == "POST":
-        current_pw = request.form.get("current_password","")
-        new_pw     = request.form.get("new_password","")
-        confirm_pw = request.form.get("confirm_password","")
-        if not check_password_hash(u["password_hash"], current_pw):
-            flash("Current password is incorrect.","danger")
-        elif len(new_pw) < 6:
-            flash("New password must be at least 6 characters.","danger")
-        elif new_pw != confirm_pw:
-            flash("New passwords do not match.","danger")
-        else:
-            db = get_db()
-            db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), u["id"]))
-            db.commit()
-            flash("Password changed successfully.","success")
-            return redirect(url_for("dashboard"))
-    form_html = f"""<form method="POST"><h5 class="fw-bold mb-4">Change Password</h5>
-    <div class="mb-3"><label class="form-label">Current Password</label><input type="password" name="current_password" class="form-control" required autofocus></div>
-    <div class="mb-3"><label class="form-label">New Password</label><input type="password" name="new_password" class="form-control" required></div>
-    <div class="mb-3"><label class="form-label">Confirm New Password</label><input type="password" name="confirm_password" class="form-control" required></div>
-    <button type="submit" class="btn btn-primary w-100 mb-3">Change Password</button>
-    <div class="text-center"><small><a href="/dashboard">← Back to dashboard</a></small></div></form>"""
-    return render_template_string(AUTH_HTML, page_title="Change Password", form_html=form_html)
+    """Handles the password change modal form — POST only, always redirects to dashboard."""
+    u          = current_user()
+    current_pw = request.form.get("current_password","")
+    new_pw     = request.form.get("new_password","")
+    confirm_pw = request.form.get("confirm_password","")
+    if not check_password_hash(u["password_hash"], current_pw):
+        flash("Current password is incorrect.","danger")
+    elif len(new_pw) < 6:
+        flash("New password must be at least 6 characters.","danger")
+    elif new_pw != confirm_pw:
+        flash("New passwords do not match.","danger")
+    else:
+        db = get_db()
+        db.execute("UPDATE users SET password_hash=? WHERE id=?",
+                   (generate_password_hash(new_pw), u["id"]))
+        db.commit()
+        flash("Password changed successfully! Please log in again.","success")
+        session.clear()
+        return redirect(url_for("login"))
+    return redirect(url_for("dashboard"))
 
 # =============================================================================
 #  BADGE ROUTES
@@ -1395,7 +1496,239 @@ def badge_card(username):
         badge_emoji=emoji, badge_label=label, badge_colour=colour, badge_dark=dark,
         lang_breakdown=lang_breakdown,
         next_at=next_at, next_label=next_label, next_emoji=next_emoji, next_colour=next_colour or colour,
+        user_photo=db_get_photo(u["id"]),
     )
+
+@app.route("/profile", methods=["POST"])
+@login_required
+def profile_upload():
+    """Upload a profile photo — stored as base64 JPEG in the DB."""
+    u   = current_user()
+    f   = request.files.get("photo")
+    if not f or not f.filename:
+        flash("No file selected.", "warning")
+        return redirect(url_for("dashboard"))
+    try:
+        # Read file bytes
+        raw = f.read()
+        if len(raw) > 2 * 1024 * 1024:
+            flash("Photo must be under 2 MB.", "danger")
+            return redirect(url_for("dashboard"))
+
+        # Process with Pillow — resize + crop to square, compress to JPEG
+        try:
+            from PIL import Image as PILImage, ImageOps
+            import io as _io
+            img = PILImage.open(_io.BytesIO(raw)).convert("RGB")
+            # Square-crop: take centre
+            w, h = img.size
+            side  = min(w, h)
+            left  = (w - side) // 2
+            top   = (h - side) // 2
+            img   = img.crop((left, top, left + side, top + side))
+            img   = img.resize((400, 400), PILImage.LANCZOS)
+            buf   = _io.BytesIO()
+            img.save(buf, format="JPEG", quality=85, optimize=True)
+            b64   = base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            # Pillow not available — store raw as-is
+            b64 = base64.b64encode(raw).decode()
+
+        db_set_photo(u["id"], b64)
+        flash("Profile photo updated!", "success")
+    except Exception as exc:
+        flash(f"Upload failed: {exc}", "danger")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/badge/<username>/download")
+def badge_download(username):
+    """
+    Render the badge as a PNG using Pillow and return it as a download.
+    Requires Pillow: pip install pillow
+    Falls back to redirecting to the HTML badge page if Pillow is unavailable.
+    """
+    u = get_user_by_name(username)
+    if not u or not u["approved"]:
+        return "User not found.", 404
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+        import io as _io
+    except ImportError:
+        # Pillow not installed — redirect to HTML badge
+        flash("Install Pillow to download PNG badges: pip install pillow", "warning")
+        return redirect(url_for("badge_card", username=username))
+
+    contrib = db_user_contrib_count(u["id"])
+    slug, emoji_char, label, colour, dark = get_badge(contrib)
+
+    # Language breakdown
+    lang_rows = get_db().execute(
+        "SELECT target_lang, COUNT(*) as cnt FROM translations WHERE added_by=? "
+        "GROUP BY target_lang ORDER BY cnt DESC LIMIT 5", (u["id"],)
+    ).fetchall()
+
+    # Next badge
+    next_label_str = ""
+    for threshold, s, em, lb, col, dk in reversed(BADGE_LEVELS):
+        if contrib < threshold:
+            next_label_str = f"Next: {em} {lb} at {threshold} contributions"
+            break
+
+    # ── Canvas ────────────────────────────────────────────────────────────────
+    W, H   = 600, 720
+    card   = Image.new("RGB", (W, H), (10, 15, 28))
+    d      = ImageDraw.Draw(card)
+
+    # Parse accent colour hex → RGB
+    def hex2rgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+    acc = hex2rgb(colour)
+
+    # Background gradient
+    for y in range(H):
+        t  = y / H
+        r  = int(10  + 8  * t)
+        g  = int(15  + 10 * t)
+        b  = int(28  + 18 * t)
+        d.line([(0, y), (W, y)], fill=(r, g, b))
+
+    # Accent top bar
+    d.rectangle([0, 0, W, 8], fill=acc)
+    # Accent bottom bar
+    d.rectangle([0, H - 8, W, H], fill=acc)
+    # Subtle border
+    d.rectangle([0, 0, W-1, H-1], outline=acc, width=2)
+
+    def F(size, bold=False):
+        for p in [
+            f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'-Bold' if bold else ''}.ttf",
+            f"/usr/share/fonts/truetype/liberation/LiberationSans{'-Bold' if bold else '-Regular'}.ttf",
+        ]:
+            if os.path.exists(p):
+                return ImageFont.truetype(p, size)
+        return ImageFont.load_default()
+
+    CX = W // 2
+
+    # Brand
+    d.text((CX, 22), "TECHDIALECT", font=F(22, True), fill=acc,
+           anchor="mm" if hasattr(d, "textbbox") else None)
+    bw = d.textbbox((0,0),"TECHDIALECT",font=F(22,True))[2]
+    d.text(((W-bw)//2, 18), "TECHDIALECT", font=F(22,True), fill=acc)
+    sw = d.textbbox((0,0),"technologia omnibus",font=F(13))[2]
+    d.text(((W-sw)//2, 46), "technologia omnibus", font=F(13), fill=(100,120,140))
+
+    # Profile photo or emoji circle
+    photo_b64 = db_get_photo(u["id"])
+    circle_y = 76
+    circle_r = 80
+
+    if photo_b64:
+        try:
+            img_data = base64.b64decode(photo_b64)
+            photo    = Image.open(_io.BytesIO(img_data)).convert("RGB")
+            photo    = photo.resize((circle_r*2, circle_r*2), Image.LANCZOS)
+            photo    = ImageEnhance.Contrast(photo).enhance(1.05)
+            # Circular mask
+            mask = Image.new("L", (circle_r*2, circle_r*2), 0)
+            ImageDraw.Draw(mask).ellipse([0, 0, circle_r*2-1, circle_r*2-1], fill=255)
+            photo_rgba = Image.new("RGBA", (circle_r*2, circle_r*2), (0,0,0,0))
+            photo_rgba.paste(photo, mask=mask)
+            px = CX - circle_r
+            py = circle_y
+            card.paste(photo, (px, py), photo_rgba.split()[3])
+            # Accent ring
+            d.ellipse([px-4, py-4, px+circle_r*2+4, py+circle_r*2+4], outline=acc, width=4)
+        except Exception:
+            photo_b64 = None  # fall through to emoji
+
+    if not photo_b64:
+        # Draw coloured circle with badge emoji text
+        cx2, cy2 = CX, circle_y + circle_r
+        d.ellipse([cx2-circle_r, cy2-circle_r, cx2+circle_r, cy2+circle_r],
+                  fill=(20, 30, 50), outline=acc, width=4)
+        # Badge level initial
+        init = label[0].upper()
+        iw = d.textbbox((0,0),init,font=F(56,True))[2]
+        ih = d.textbbox((0,0),init,font=F(56,True))[3]
+        d.text((cx2-iw//2, cy2-ih//2-4), init, font=F(56,True), fill=acc)
+
+    y = circle_y + circle_r*2 + 20
+
+    # Divider
+    d.rectangle([(W-200)//2, y, (W+200)//2, y+2], fill=acc)
+    y += 12
+
+    # Badge level
+    lw = d.textbbox((0,0),f"{label} Contributor",font=F(28,True))[2]
+    d.text(((W-lw)//2, y), f"{label} Contributor", font=F(28,True), fill=acc)
+    y += 38
+
+    # Username
+    uw = d.textbbox((0,0),username,font=F(22,True))[2]
+    d.text(((W-uw)//2, y), username, font=F(22,True), fill=(255,255,255))
+    y += 34
+
+    # Count
+    cnt_str = f"{contrib:,} translation{'s' if contrib != 1 else ''} contributed"
+    cw2 = d.textbbox((0,0),cnt_str,font=F(16))[2]
+    d.text(((W-cw2)//2, y), cnt_str, font=F(16), fill=(140,165,190))
+    y += 30
+
+    # Language badges
+    if lang_rows:
+        d.rectangle([(W-200)//2, y, (W+200)//2, y+2], fill=(30,42,60))
+        y += 12
+        # Render language pills
+        pills = [(r["target_lang"], r["cnt"]) for r in lang_rows]
+        pill_h = 28
+        total_pill_w = sum(d.textbbox((0,0),f"{n}: {c}",font=F(13,True))[2]+20 for n,c in pills) + (len(pills)-1)*8
+        px2 = (W - min(total_pill_w, W-60)) // 2
+        for lang_name, lang_cnt in pills:
+            text = f"{lang_name}: {lang_cnt}"
+            tw   = d.textbbox((0,0),text,font=F(13,True))[2]
+            pw2  = tw + 20
+            if px2 + pw2 > W - 20:
+                px2  = (W - min(total_pill_w, W-60)) // 2
+                y   += pill_h + 6
+            d.rounded_rectangle([px2, y, px2+pw2, y+pill_h], radius=14,
+                                 fill=tuple(int(c*0.15) for c in acc))
+            d.rounded_rectangle([px2, y, px2+pw2, y+pill_h], radius=14,
+                                 outline=tuple(int(c*0.6) for c in acc), width=1)
+            tw2 = d.textbbox((0,0),text,font=F(13,True))[2]
+            d.text((px2+10, y+7), text, font=F(13,True), fill=acc)
+            px2 += pw2 + 8
+        y += pill_h + 14
+
+    # Next badge note
+    if next_label_str:
+        nw = d.textbbox((0,0),next_label_str,font=F(13))[2]
+        d.text(((W-nw)//2, y), next_label_str, font=F(13), fill=(80,100,120))
+        y += 24
+
+    # Website
+    d.rectangle([(W-280)//2, H-52, (W+280)//2, H-20], fill=tuple(int(c*0.15) for c in acc))
+    sw2 = d.textbbox((0,0),"silabs.pythonanywhere.com",font=F(15,True))[2]
+    d.text(((W-sw2)//2, H-48), "silabs.pythonanywhere.com", font=F(15,True), fill=acc)
+
+    # ── Encode as PNG bytes ───────────────────────────────────────────────────
+    buf = _io.BytesIO()
+    card.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+
+    return Response(
+        buf.getvalue(),
+        mimetype="image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="techdialect_badge_{username}.png"',
+            "Content-Length": str(len(buf.getvalue())),
+        }
+    )
+
 
 # =============================================================================
 #  ADMIN ROUTES
@@ -1418,6 +1751,7 @@ def admin_panel():
         lang_counts=db_lang_counts(), user_contrib=user_contrib,
         messages_list=db_get_messages(), unread_count=db_unread_count(),
         get_badge=get_badge,
+        user_photo=db_get_photo(u["id"]) if u else None,
     )
 
 @app.route("/admin/approve/<int:uid>", methods=["POST"])
@@ -1698,8 +2032,8 @@ def api_badge(username):
 if __name__ == "__main__":
     init_db()
     print("\n" + "="*65)
-    print("  TECHDIALECT TRANSLATION ENGINE  v6.0")
-    print("  Multi-user · Badges · Messaging · User-managed languages")
+    print("  TECHDIALECT TRANSLATION ENGINE  v6.1")
+    print("  Multi-user · Badges + Photos · Messaging · User-managed languages")
     print("="*65)
     print(f"  DB     : {DB_PATH}")
     print(f"  AI     : {'✅ HuggingFace API active' if HF_TOKEN else '❌ No HF_TOKEN — DB-only mode'}")
