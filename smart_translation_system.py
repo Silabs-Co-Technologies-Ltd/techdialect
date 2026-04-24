@@ -337,12 +337,26 @@ def db_set_photo(uid, b64_str):
     db.commit()
 
 def db_leaderboard(limit=10):
-    return get_db().execute(
+    """Return leaderboard rows with badge data pre-computed for Jinja2."""
+    rows = get_db().execute(
         "SELECT u.id, u.username, COUNT(t.id) as cnt "
         "FROM users u LEFT JOIN translations t ON t.added_by=u.id "
         "WHERE u.approved=1 "
         "GROUP BY u.id ORDER BY cnt DESC LIMIT ?", (limit,)
     ).fetchall()
+    result = []
+    for r in rows:
+        slug, emoji, label, colour, dark = get_badge(r["cnt"])
+        result.append({
+            "id":           r["id"],
+            "username":     r["username"],
+            "cnt":          r["cnt"],
+            "badge_slug":   slug,
+            "badge_emoji":  emoji,
+            "badge_label":  label,
+            "badge_colour": colour,
+        })
+    return result
 
 # ── Daily stats ───────────────────────────────────────────────────────────────
 
@@ -928,14 +942,13 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
             <p class="text-muted small mb-2">Top contributors across all languages.</p>
             {% if leaderboard %}
             <div>{% for row in leaderboard %}
-              {% set lb_slug, lb_emoji, lb_label, lb_col, lb_dk = get_badge(row.cnt) %}
               <div class="lb-row">
                 <div class="lb-rank text-muted">{{ loop.index }}</div>
                 <div class="flex-grow-1">
                   <div class="fw-semibold small">{{ row.username }}</div>
-                  <div style="font-size:.72rem;color:{{ lb_col }}">{{ lb_emoji }} {{ lb_label }}</div>
+                  <div style="font-size:.72rem;color:{{ row.badge_colour }}">{{ row.badge_emoji }} {{ row.badge_label }}</div>
                 </div>
-                <div class="fw-bold small" style="color:{{ lb_col }}">{{ row.cnt }}</div>
+                <div class="fw-bold small" style="color:{{ row.badge_colour }}">{{ row.cnt }}</div>
               </div>
             {% endfor %}</div>
             {% else %}<div class="text-center py-3 text-muted">No contributions yet.</div>{% endif %}
@@ -1237,15 +1250,14 @@ td{vertical-align:middle!important;font-size:.85rem;}
             <table class="table table-sm table-hover mb-0">
               <thead class="table-light"><tr><th>#</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th>Contributions</th><th>Badge</th></tr></thead>
               <tbody>{% for u in all_users %}
-                {% set ub_slug,ub_em,ub_lb,ub_col,ub_dk = get_badge(user_contrib.get(u.id,0)) %}
-                <tr>
+  <tr>
                   <td class="text-muted">{{ u.id }}</td><td class="fw-semibold">{{ u.username }}</td>
                   <td class="text-muted">{{ u.email }}</td>
                   <td><span class="badge {{ 'bg-danger' if u.role=='admin' else 'bg-secondary' }}">{{ u.role }}</span></td>
                   <td><span class="badge {{ 'bg-success' if u.approved else 'bg-warning text-dark' }}">{{ 'Active' if u.approved else 'Pending' }}</span></td>
                   <td class="text-muted small">{{ u.created_at[:10] }}</td>
                   <td class="text-muted">{{ user_contrib.get(u.id,0) }}</td>
-                  <td><span style="color:{{ ub_col }};font-size:.82rem;font-weight:600">{{ ub_em }} {{ ub_lb }}</span></td>
+                  <td><span style="font-size:.82rem;font-weight:600">{{ user_badges.get(u.id, {}).get('emoji','—') }} {{ user_badges.get(u.id, {}).get('label','') }}</span></td>
                 </tr>
               {% endfor %}</tbody>
             </table>
@@ -1375,7 +1387,6 @@ def render_main(result=None, last_query="", last_category="General", lang=None):
         user=u, contrib_count=contrib,
         badge_emoji=emoji, badge_label=label, badge_colour=colour,
         unread_msgs=db_unread_count() if u and u["role"]=="admin" else 0,
-        get_badge=get_badge,
         user_photo=db_get_photo(u["id"]) if u else None,
     )
 
@@ -1744,14 +1755,21 @@ def admin_panel():
     pending_langs = db.execute(
         "SELECT l.*, u.username as proposer FROM languages l LEFT JOIN users u ON l.added_by=u.id WHERE l.approved=0"
     ).fetchall()
+    all_users = get_all_users()
+    # Pre-compute badge info for every user so Jinja2 doesn't need to call get_badge()
+    user_badges = {}
+    for usr in all_users:
+        cnt = user_contrib.get(usr["id"], 0)
+        slug, emoji, label, colour, dark = get_badge(cnt)
+        user_badges[usr["id"]] = {"slug": slug, "emoji": emoji, "label": label, "colour": colour}
+
     return render_template_string(
         ADMIN_HTML,
-        pending_users=get_pending_users(), all_users=get_all_users(),
+        pending_users=get_pending_users(), all_users=all_users,
         pending_langs=pending_langs, all_langs=db_all_languages(),
         lang_counts=db_lang_counts(), user_contrib=user_contrib,
         messages_list=db_get_messages(), unread_count=db_unread_count(),
-        get_badge=get_badge,
-        user_photo=db_get_photo(u["id"]) if u else None,
+        user_badges=user_badges,
     )
 
 @app.route("/admin/approve/<int:uid>", methods=["POST"])
