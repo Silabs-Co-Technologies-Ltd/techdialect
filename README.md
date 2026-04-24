@@ -225,7 +225,7 @@ python smart_translation_system.py
 # Submit a pull request
 ```
 
-All code currently lives in a single file (`smart_translation_system.py`) for ease of deployment on basic hosts like PythonAnywhere. However, see [UPGRADE_PLAN.md](UPGRADE_PLAN.md) for our roadmap to a modular, high-scale architecture.
+All code currently lives in a single file (`smart_translation_system.py`) for ease of deployment on basic hosts like PythonAnywhere. However, see [WINNING_STRATEGY.md](WINNING_STRATEGY.md) for our "Zero-Budget" plan to win the ₦10M challenge using our current infrastructure.
 
 ### Code structure
 
@@ -260,7 +260,9 @@ smart_translation_system.py
 - [x] User-to-admin messaging
 - [ ] 1,000 Tiv word dataset
 - [x] Repository Audit & Cleanup (Removed duplicates, optimized badge logic)
-- [x] Strategic Upgrade Plan for ₦10M Tech Challenge
+- [x] Strategic Upgrade Plan for ₦10M Tech Challenge (Zero-Budget focus)
+- [x] Database Optimization (WAL mode + Indexes for scale)
+- [x] Performance Refactor (Pre-computed badges & faster rendering)
 
 ### Phase 2 — 6 Months
 - [ ] Expand all 5 launched languages to full coverage
