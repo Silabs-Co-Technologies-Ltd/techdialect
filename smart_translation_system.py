@@ -54,7 +54,7 @@ from functools import wraps
 
 from flask import (
     Flask, request, render_template_string, redirect, url_for,
-    flash, Response, session, jsonify, g
+    flash, Response, session, jsonify, g, send_from_directory
 )
 from dotenv import load_dotenv
 
@@ -551,6 +551,13 @@ AUTH_HTML = """
 <!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Techdialect — {{ page_title }}</title>
+<meta name="description" content="Nigerian Language Dataset Engine — Building the future of local language technology.">
+<meta property="og:title" content="Techdialect">
+<meta property="og:description" content="Translating English into Nigerian languages using AI while building community-powered datasets.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://silabs.pythonanywhere.com">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#e85d04">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <style>
@@ -650,6 +657,13 @@ MAIN_HTML = r"""
 <!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Techdialect · {{ selected_lang }}</title>
+<meta name="description" content="Nigerian Language Dataset Engine — Building the future of local language technology.">
+<meta property="og:title" content="Techdialect">
+<meta property="og:description" content="Translating English into Nigerian languages using AI while building community-powered datasets.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://silabs.pythonanywhere.com">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#e85d04">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <style>
@@ -1102,6 +1116,7 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
   &nbsp;·&nbsp; <a href="/badge/{{ user.username }}/download" class="text-decoration-none text-success fw-semibold"><i class="bi bi-download"></i> Download Badge</a>
   &nbsp;·&nbsp; <a href="#" data-bs-toggle="modal" data-bs-target="#photoModal" class="text-decoration-none text-primary"><i class="bi bi-person-circle"></i> Profile Photo</a>
   &nbsp;·&nbsp; <a href="#" data-bs-toggle="modal" data-bs-target="#pwModal" class="text-decoration-none text-secondary"><i class="bi bi-lock"></i> Change Password</a>
+  &nbsp;·&nbsp; <a href="/docs" class="text-primary text-decoration-none fw-semibold"><i class="bi bi-code-slash"></i> API Docs</a>
   &nbsp;·&nbsp; <a href="/export_csv" class="text-success text-decoration-none fw-semibold"><i class="bi bi-download"></i> Export All</a>
 </footer>
 
@@ -2042,6 +2057,53 @@ def api_badge(username):
     contrib = db_user_contrib_count(u["id"])
     slug, emoji, label, colour, dark = get_badge(contrib)
     return jsonify({"username":username,"contributions":contrib,"badge":{"slug":slug,"emoji":emoji,"label":label,"colour":colour}})
+
+@app.route("/docs")
+def api_docs():
+    """Render a simple API documentation page."""
+    return render_template_string("""
+    <!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Techdialect API Documentation</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>body{background:#f8fafc;font-family:system-ui,-apple-system,sans-serif;padding:2rem 0;}
+    .card{border:none;border-radius:1rem;box-shadow:0 4px 12px rgba(0,0,0,.05);margin-bottom:2rem;}
+    code{background:#f1f5f9;color:#e85d04;padding:.2rem .4rem;border-radius:.3rem;}
+    pre{background:#1e293b;color:#f8fafc;padding:1rem;border-radius:.5rem;overflow-x:auto;}
+    .method{font-weight:800;margin-right:.5rem;color:#0d6efd;}</style></head><body>
+    <div class="container" style="max-width:800px;">
+      <div class="d-flex align-items-center gap-3 mb-4">
+        <a href="/" class="btn btn-outline-secondary btn-sm">← Back</a>
+        <h1 class="h3 fw-bold mb-0">Techdialect API <span class="badge bg-primary small" style="font-size:.6rem">v1.0</span></h1>
+      </div>
+      <p class="text-muted">Integrate Nigerian language translations into your own apps and services.</p>
+      
+      <div class="card"><div class="card-body">
+        <h5 class="fw-bold"><span class="method">GET</span> /api/translate</h5>
+        <p class="small text-muted">Translate text using the 3-tier engine.</p>
+        <p class="mb-1 small fw-bold">Parameters:</p>
+        <ul class="small"><li><code>text</code>: The English text to translate.</li><li><code>lang</code>: Target language (e.g. Tiv, Yoruba).</li></ul>
+        <pre>{ "status": "exact", "english": "Hello", "local": "M sugh u", "lang": "Tiv" }</pre>
+      </div></div>
+
+      <div class="card"><div class="card-body">
+        <h5 class="fw-bold"><span class="method">GET</span> /api/languages</h5>
+        <p class="small text-muted">List all approved languages and their dataset counts.</p>
+        <pre>{ "languages": [ { "name": "Tiv", "count": 450 }, ... ] }</pre>
+      </div></div>
+
+      <div class="card"><div class="card-body">
+        <h5 class="fw-bold"><span class="method">GET</span> /api/stats</h5>
+        <p class="small text-muted">Get global platform statistics.</p>
+        <pre>{ "total_terms": 1250, "streak_days": 14, ... }</pre>
+      </div></div>
+      
+      <div class="text-center text-muted small mt-5">Techdialect — technologia omnibus</div>
+    </div></body></html>""")
+
+@app.route("/manifest.json")
+def serve_manifest():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), "manifest.json")
 
 # =============================================================================
 #  ENTRY POINT
