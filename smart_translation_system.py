@@ -1137,7 +1137,7 @@ if(artOutput)artOutput.value='';if(chunkRes)chunkRes.innerHTML='';if(artWrap)art
 fetch('/translate_article',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,lang:lang})}).then(function(r){return r.json();}).then(function(d){
 if(d.status==='error'||d.status==='no_ai'){setProg(0);artProg.classList.add('d-none');setStatus(d.message||'Failed.','danger');if(artBtn){artBtn.disabled=false;artBtn.innerHTML='<i class="bi bi-arrow-right-circle me-2"></i>Translate Article';}return;}
 if(artOutput)artOutput.value=d.full_translation||'';setProg(100);setStatus('Done — '+d.total_chunks+' chunk'+(d.total_chunks!==1?'s':'')+' translated.','success');if(copyBtn)copyBtn.classList.remove('d-none');if(dlBtn)dlBtn.classList.remove('d-none');
-if(chunkRes&&d.chunks&&d.chunks.length){if(chunkBadge)chunkBadge.textContent=d.chunks.length+' paragraphs';var html='';d.chunks.forEach(function(c){var b=c.source==='db'?'<span class="badge-db">DB</span>':'<span class="badge-ai">AI</span>';html+='<div class="chunk-row"><div class="row g-2"><div class="col-md-6 chunk-en">'+esc(c.english)+'</div><div class="col-md-6 chunk-tiv">'+b+' '+esc(c.local||'—')+'</div></div></div>';});chunkRes.innerHTML=html;artWrap.style.display='block';}
+	if(chunkRes&&d.chunks&&d.chunks.length){if(chunkBadge)chunkBadge.textContent=d.chunks.length+' paragraphs';var html='';d.chunks.forEach(function(c){var b=c.source==='db'?'<span class="badge-db">DB</span>':'<span class="badge-ai">AI</span>';html+='<div class="chunk-row"><div class="row g-2"><div class="col-md-6 chunk-en">'+esc(c.english)+'</div><div class="col-md-6 chunk-tiv">'+b+' '+esc(c.local||'—')+'</div></div></div>';});chunkRes.innerHTML=html;artWrap.style.display='block';}
 if(artBtn){artBtn.disabled=false;artBtn.innerHTML='<i class="bi bi-arrow-right-circle me-2"></i>Translate Article';}}).catch(function(e){setStatus('Error: '+e,'danger');if(artBtn)artBtn.disabled=false;});}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function copyTranslation(){if(!artOutput)return;navigator.clipboard.writeText(artOutput.value).then(function(){var o=copyBtn.innerHTML;copyBtn.innerHTML='<i class="bi bi-check me-1"></i>Copied!';setTimeout(function(){copyBtn.innerHTML=o;},1800);});}
@@ -1268,12 +1268,25 @@ td{vertical-align:middle!important;font-size:.85rem;}
   <tr>
                   <td class="text-muted">{{ u.id }}</td><td class="fw-semibold">{{ u.username }}</td>
                   <td class="text-muted">{{ u.email }}</td>
-                  <td><span class="badge {{ 'bg-danger' if u.role=='admin' else 'bg-secondary' }}">{{ u.role }}</span></td>
-                  <td><span class="badge {{ 'bg-success' if u.approved else 'bg-warning text-dark' }}">{{ 'Active' if u.approved else 'Pending' }}</span></td>
-                  <td class="text-muted small">{{ u.created_at[:10] }}</td>
-                  <td class="text-muted">{{ user_contrib.get(u.id,0) }}</td>
-                  <td><span style="font-size:.82rem;font-weight:600">{{ user_badges.get(u.id, {}).get('emoji','—') }} {{ user_badges.get(u.id, {}).get('label','') }}</span></td>
-                </tr>
+<td>
+                      <span class="badge {{ 'bg-danger' if u.role=='admin' else 'bg-secondary' }}">{{ u.role }}</span>
+                      {% if user.username == DEFAULT_ADMIN_USERNAME or user.role == 'admin' %}
+                        {% if u.role == 'user' %}
+                          <form method="POST" action="/admin/promote/{{ u.id }}" class="d-inline ms-1">
+                            <button class="btn btn-outline-danger btn-sm py-0" style="font-size: .65rem;" onclick="return confirm('Promote {{ u.username }} to Admin?')">Promote</button>
+                          </form>
+                        {% elif u.role == 'admin' and u.username != DEFAULT_ADMIN_USERNAME %}
+                          <form method="POST" action="/admin/demote/{{ u.id }}" class="d-inline ms-1">
+                            <button class="btn btn-outline-secondary btn-sm py-0" style="font-size: .65rem;" onclick="return confirm('Demote {{ u.username }} to User?')">Demote</button>
+                          </form>
+                        {% endif %}
+                      {% endif %}
+                    </td>
+	                  <td><span class="badge {{ 'bg-success' if u.approved else 'bg-warning text-dark' }}">{{ 'Active' if u.approved else 'Pending' }}</span></td>
+	                  <td class="text-muted small">{{ u.created_at[:10] }}</td>
+	                  <td class="text-muted">{{ user_contrib.get(u.id,0) }}</td>
+	                  <td><span style="font-size:.82rem;font-weight:600">{{ user_badges.get(u.id, {}).get('emoji','—') }} {{ user_badges.get(u.id, {}).get('label','') }}</span></td>
+	                </tr>
               {% endfor %}</tbody>
             </table>
           </div>
@@ -1785,6 +1798,7 @@ def admin_panel():
         lang_counts=db_lang_counts(), user_contrib=user_contrib,
         messages_list=db_get_messages(), unread_count=db_unread_count(),
         user_badges=user_badges,
+        DEFAULT_ADMIN_USERNAME=DEFAULT_ADMIN_USERNAME,
     )
 
 @app.route("/admin/approve/<int:uid>", methods=["POST"])
@@ -1817,6 +1831,31 @@ def admin_approve_lang(lid):
 def admin_reject_lang(lid):
     db = get_db(); row = db.execute("SELECT * FROM languages WHERE id=?", (lid,)).fetchone()
     if row: db.execute("DELETE FROM languages WHERE id=?", (lid,)); db.commit(); flash(f"Language '{row['name']}' rejected.","warning")
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/promote/<int:uid>", methods=["POST"])
+@login_required
+@admin_required
+def admin_promote(uid):
+    db = get_db(); u = get_user(uid)
+    if u:
+        db.execute("UPDATE users SET role='admin' WHERE id=?", (uid,))
+        db.commit()
+        flash(f"✅ {u['username']} has been promoted to Admin.", "success")
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/demote/<int:uid>", methods=["POST"])
+@login_required
+@admin_required
+def admin_demote(uid):
+    db = get_db(); u = get_user(uid)
+    if u:
+        if u['username'] == DEFAULT_ADMIN_USERNAME:
+            flash("❌ Cannot demote the primary system admin.", "danger")
+        else:
+            db.execute("UPDATE users SET role='user' WHERE id=?", (uid,))
+            db.commit()
+            flash(f"⚠️ {u['username']} has been demoted to User.", "warning")
     return redirect(url_for("admin_panel"))
 
 # ── Message admin routes ───────────────────────────────────────────────────────
