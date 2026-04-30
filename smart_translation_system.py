@@ -50,6 +50,7 @@
 #  ╚══════════════════════════════════════════════════════════════════════════╝
 
 import os, csv, io, sqlite3, difflib, datetime, textwrap, re, hashlib, base64
+import time
 from functools import wraps
 
 from flask import (
@@ -82,6 +83,8 @@ SECRET_KEY           = os.getenv("SECRET_KEY", "techdialect-dev-key-change-in-pr
 HF_TOKEN             = os.getenv("HF_TOKEN")
 DAILY_GOAL           = int(os.getenv("DAILY_GOAL", "20"))
 SIMILARITY_THRESHOLD = 0.55
+SHORT_QUERY_THRESHOLD = 0.72
+MIN_FUZZY_QUERY_LEN   = 3
 MAX_INPUT_CHARS      = 450
 MAX_CHUNK_CHARS      = 400
 
@@ -89,9 +92,12 @@ MAX_CHUNK_CHARS      = 400
 # ── Correct endpoint for NLLB-200 inference API:
 HF_MODEL_URL = "https://api-inference.huggingface.co/models/facebook/nllb-200-distilled-600M"
 SOURCE_LANG  = "eng_Latn"
+HF_MAX_RETRIES = 2
 
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "techdialect.db")
 SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
+NON_WORD_RE    = re.compile(r"[^\w\s]", re.UNICODE)
+MULTISPACE_RE  = re.compile(r"\s+")
 
 DEFAULT_ADMIN_USERNAME = "Silabstechdialect"
 DEFAULT_ADMIN_PASSWORD = "Techdialect@2024"
@@ -112,6 +118,13 @@ def get_badge(count):
         if count >= threshold:
             return slug, emoji, label, colour, dark
     return "none", "—", "No badge yet", "#6b7280", "#111827"
+
+def normalize_english_text(text):
+    """Canonicalize English source text for matching/deduplication."""
+    text = (text or "").strip().lower()
+    text = NON_WORD_RE.sub(" ", text)
+    text = MULTISPACE_RE.sub(" ", text)
+    return text.strip()
 
 CATEGORIES = [
     "Greetings & Farewells","Family & Relationships","Body & Health",
@@ -184,14 +197,20 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS translations (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         english_text TEXT    NOT NULL,
+        english_norm TEXT,
         local_text   TEXT    NOT NULL,
         target_lang  TEXT    NOT NULL,
         category     TEXT    NOT NULL DEFAULT 'General',
         source       TEXT    NOT NULL DEFAULT 'manual',
+        quality_status TEXT  NOT NULL DEFAULT 'verified',
+        confidence   REAL,
+        verified_by  INTEGER,
+        verified_at  TEXT,
         added_by     INTEGER,
         created_at   TEXT    NOT NULL,
         UNIQUE (english_text, target_lang),
-        FOREIGN KEY (added_by) REFERENCES users(id)
+        FOREIGN KEY (added_by) REFERENCES users(id),
+        FOREIGN KEY (verified_by) REFERENCES users(id)
     )""")
 
     c.execute("""CREATE TABLE IF NOT EXISTS daily_log (
@@ -217,10 +236,63 @@ def init_db():
     except Exception:
         pass  # column already exists — safe to ignore
 
+    # ── v6.2 migration: add english_norm for canonical matching ───────────
+    try:
+        c.execute("ALTER TABLE translations ADD COLUMN english_norm TEXT")
+        conn.commit()
+    except Exception:
+        pass  # column already exists — safe to ignore
+    # ── v6.3 migration: quality control metadata for translations ──────────
+    for col_sql in [
+        "ALTER TABLE translations ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'verified'",
+        "ALTER TABLE translations ADD COLUMN confidence REAL",
+        "ALTER TABLE translations ADD COLUMN verified_by INTEGER",
+        "ALTER TABLE translations ADD COLUMN verified_at TEXT",
+    ]:
+        try:
+            c.execute(col_sql)
+            conn.commit()
+        except Exception:
+            pass
+    # existing AI rows should be reviewed; manual/csv default to verified
+    conn.execute(
+        "UPDATE translations SET quality_status='pending_review' WHERE source='ai' AND (quality_status IS NULL OR quality_status='verified')"
+    )
+    conn.execute(
+        "UPDATE translations SET quality_status='verified' WHERE quality_status IS NULL OR quality_status=''"
+    )
+    conn.commit()
+
+    # Backfill normalized English text
+    rows = conn.execute(
+        "SELECT id, english_text FROM translations WHERE english_norm IS NULL OR english_norm=''"
+    ).fetchall()
+    for r in rows:
+        norm = normalize_english_text(r["english_text"])
+        conn.execute("UPDATE translations SET english_norm=? WHERE id=?", (norm, r["id"]))
+    conn.commit()
+
+    # Deduplicate canonical collisions (keep oldest row per normalized key+lang)
+    dupes = conn.execute("""
+        SELECT english_norm, target_lang, MIN(id) AS keep_id
+        FROM translations
+        WHERE english_norm IS NOT NULL AND english_norm <> ''
+        GROUP BY english_norm, target_lang
+        HAVING COUNT(*) > 1
+    """).fetchall()
+    for d in dupes:
+        conn.execute(
+            "DELETE FROM translations WHERE english_norm=? AND target_lang=? AND id<>?",
+            (d["english_norm"], d["target_lang"], d["keep_id"])
+        )
+    conn.commit()
+
     # Indexes
     for sql in [
         "CREATE INDEX IF NOT EXISTS idx_trans_lang     ON translations (target_lang)",
         "CREATE INDEX IF NOT EXISTS idx_trans_eng_lang ON translations (english_text, target_lang)",
+        "CREATE INDEX IF NOT EXISTS idx_trans_norm_lang ON translations (english_norm, target_lang)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_trans_norm_lang ON translations (english_norm, target_lang) WHERE english_norm IS NOT NULL AND english_norm <> ''",
         "CREATE INDEX IF NOT EXISTS idx_trans_category ON translations (category)",
         "CREATE INDEX IF NOT EXISTS idx_trans_user     ON translations (added_by)",
         "CREATE INDEX IF NOT EXISTS idx_lang_approved  ON languages    (approved)",
@@ -277,17 +349,31 @@ def db_translations(lang=None, category=None, limit=None, added_by=None):
     ).fetchall()
 
 def db_exact(english, lang):
+    norm = normalize_english_text(english)
     return get_db().execute(
-        "SELECT * FROM translations WHERE LOWER(english_text)=LOWER(?) AND target_lang=?",
-        (english.strip(), lang)
+        "SELECT * FROM translations WHERE english_norm=? AND target_lang=? "
+        "ORDER BY CASE quality_status WHEN 'verified' THEN 0 WHEN 'pending_review' THEN 1 ELSE 2 END, created_at DESC",
+        (norm, lang)
     ).fetchone()
 
 def db_insert(english, local, lang, category, source="manual", added_by=None):
     try:
         db = get_db()
+        cleaned_english = english.strip()
+        english_norm = normalize_english_text(cleaned_english)
+        if not english_norm:
+            return False
+        # enforce canonical uniqueness (e.g., punctuation/case variants)
+        exists = db.execute(
+            "SELECT id FROM translations WHERE english_norm=? AND target_lang=? LIMIT 1",
+            (english_norm, lang)
+        ).fetchone()
+        if exists:
+            return False
+        quality_status = "pending_review" if source == "ai" else "verified"
         db.execute(
-            "INSERT INTO translations (english_text,local_text,target_lang,category,source,added_by,created_at) VALUES (?,?,?,?,?,?,?)",
-            (english.strip(),local.strip(),lang,category or "General",source,added_by,
+            "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,quality_status,added_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (cleaned_english,english_norm,local.strip(),lang,category or "General",source,quality_status,added_by,
              datetime.datetime.utcnow().isoformat())
         )
         db.commit()
@@ -455,46 +541,111 @@ def admin_required(f):
 # =============================================================================
 
 def find_fuzzy(english, lang):
-    rows = db_translations(lang)
-    if not rows: return None, 0.0
+    q_norm = normalize_english_text(english)
+    if len(q_norm) < MIN_FUZZY_QUERY_LEN:
+        return None, 0.0, []
+    rows = db_fuzzy_candidates(q_norm, lang)
+    if not rows: return None, 0.0, []
     best_row, best_score = None, 0.0
-    q = english.strip().lower()
+    scored = []
+    q_tokens = set(q_norm.split())
     for row in rows:
-        score = difflib.SequenceMatcher(None, q, row["english_text"].lower()).ratio()
-        if score > best_score: best_score = score; best_row = row
-    return (best_row, best_score) if best_score >= SIMILARITY_THRESHOLD else (None, best_score)
+        target_norm = normalize_english_text(row["english_text"])
+        seq_score = difflib.SequenceMatcher(None, q_norm, target_norm).ratio()
+        t_tokens = set(target_norm.split())
+        token_score = (len(q_tokens & t_tokens) / len(q_tokens | t_tokens)) if (q_tokens or t_tokens) else 0.0
+        score = max(seq_score, (0.65 * seq_score + 0.35 * token_score))
+        scored.append((row, score))
+        if score > best_score:
+            best_score = score
+            best_row = row
+    threshold = SHORT_QUERY_THRESHOLD if len(q_norm) <= 5 else SIMILARITY_THRESHOLD
+    scored.sort(key=lambda x: x[1], reverse=True)
+    suggestions = [
+        {"english": r["english_text"], "local": r["local_text"], "category": r["category"], "score": s}
+        for r, s in scored[:3]
+    ]
+    return ((best_row, best_score, suggestions) if best_score >= threshold else (None, best_score, suggestions))
+
+def db_fuzzy_candidates(english_norm, lang, limit=250):
+    db = get_db()
+    first_token = english_norm.split()[0] if english_norm else ""
+    prefix = english_norm[:4]
+    rows = db.execute(
+        "SELECT * FROM translations WHERE target_lang=? AND (english_norm LIKE ? OR english_norm LIKE ?) LIMIT ?",
+        (lang, f"{first_token}%", f"{prefix}%", int(limit))
+    ).fetchall()
+    if rows:
+        return rows
+    return db.execute(
+        "SELECT * FROM translations WHERE target_lang=? ORDER BY created_at DESC LIMIT ?",
+        (lang, min(int(limit), 120))
+    ).fetchall()
 
 def get_nllb_code(lang):
     row = get_db().execute("SELECT nllb_code FROM languages WHERE name=? AND approved=1", (lang,)).fetchone()
     return row["nllb_code"] if row and row["nllb_code"] else None
 
-def call_hf_api(english, lang):
-    if not HF_TOKEN or not REQUESTS_AVAILABLE: return None
+def parse_hf_generated_text(data):
+    """Extract generated translation text from HuggingFace response payload."""
+    if isinstance(data, list) and data:
+        text = (data[0].get("generated_text") or "").strip()
+        return text or None
+    if isinstance(data, dict):
+        text = (data.get("generated_text") or "").strip()
+        return text or None
+    return None
+
+def call_hf_api_detailed(english, lang):
+    if not HF_TOKEN or not REQUESTS_AVAILABLE:
+        return {"ok": False, "error": "hf_unavailable", "translation": None}
     nllb_code = get_nllb_code(lang)
-    if not nllb_code: return None
+    if not nllb_code: return {"ok": False, "error": "nllb_code_missing", "translation": None}
     safe = textwrap.shorten(english.strip(), width=MAX_INPUT_CHARS, placeholder="…")
+    if not safe:
+        return {"ok": False, "error": "empty_input", "translation": None}
     examples = get_db().execute(
         "SELECT english_text,local_text FROM translations WHERE target_lang=? ORDER BY RANDOM() LIMIT 5", (lang,)
     ).fetchall()
     ex_block = "".join(f"English: {e['english_text']}\n{lang}: {e['local_text']}\n\n" for e in examples)
-    prompt = f"Translate the following English text to {lang}.\nKeep the tone natural.\n\n{ex_block}English: {safe}\n{lang}:"
-    try:
-        r = http_requests.post(
-            HF_MODEL_URL,
-            headers={"Authorization": f"Bearer {HF_TOKEN}"},
-            json={"inputs": prompt, "parameters": {"max_new_tokens": 150, "temperature": 0.3, "do_sample": False}},
-            timeout=30
-        )
-        r.raise_for_status()
-        data = r.json()
-        if isinstance(data, list) and data:
-            raw = data[0].get("generated_text", "").strip()
-            if ":" in raw: raw = raw.split(":")[-1].strip()
-            return raw or None
-        if isinstance(data, dict): return data.get("generated_text", "").strip() or None
-    except Exception as exc:
-        print(f"  HF API error: {exc}")
-    return None
+    prompt = (
+        f"Translate the following English text to {lang} ({nllb_code}).\n"
+        "Return only the translated text. Do not add labels, notes, or explanations.\n\n"
+        f"{ex_block}English: {safe}"
+    )
+    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 150, "temperature": 0.2, "do_sample": False}}
+    for attempt in range(HF_MAX_RETRIES + 1):
+        start = time.time()
+        try:
+            r = http_requests.post(
+                HF_MODEL_URL,
+                headers={"Authorization": f"Bearer {HF_TOKEN}"},
+                json=payload,
+                timeout=30
+            )
+            latency_ms = int((time.time() - start) * 1000)
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < HF_MAX_RETRIES:
+                time.sleep(0.6 * (attempt + 1))
+                continue
+            r.raise_for_status()
+            data = r.json()
+            translation = parse_hf_generated_text(data)
+            if translation:
+                return {"ok": True, "error": None, "translation": translation, "latency_ms": latency_ms}
+            return {"ok": False, "error": "empty_model_output", "translation": None, "latency_ms": latency_ms}
+        except Exception as exc:
+            if attempt < HF_MAX_RETRIES:
+                time.sleep(0.6 * (attempt + 1))
+                continue
+            print(f"  HF API error ({lang}): {exc}")
+            return {"ok": False, "error": "request_failed", "translation": None}
+    return {"ok": False, "error": "request_failed", "translation": None}
+
+def call_hf_api(english, lang):
+    result = call_hf_api_detailed(english, lang)
+    if not isinstance(result, dict):
+        return None
+    return result.get("translation")
 
 def translate(english, lang):
     english = english.strip()
@@ -502,8 +653,8 @@ def translate(english, lang):
     if lang not in db_lang_names(): return {"status":"error","message":f"Unknown language: {lang}"}
     row = db_exact(english, lang)
     if row: return {"status":"exact","source":"Database (exact match)","english":row["english_text"],"local":row["local_text"],"lang":lang,"category":row["category"],"saved":True}
-    fuzzy_row, score = find_fuzzy(english, lang)
-    if fuzzy_row: return {"status":"fuzzy","source":f"Database (fuzzy — {score:.0%} similar)","english":fuzzy_row["english_text"],"local":fuzzy_row["local_text"],"lang":lang,"category":fuzzy_row["category"],"score":score,"saved":True,"original_query":english}
+    fuzzy_row, score, suggestions = find_fuzzy(english, lang)
+    if fuzzy_row: return {"status":"fuzzy","source":f"Database (fuzzy — {score:.0%} similar)","english":fuzzy_row["english_text"],"local":fuzzy_row["local_text"],"lang":lang,"category":fuzzy_row["category"],"score":score,"saved":True,"original_query":english,"suggestions":suggestions}
     ai_text = call_hf_api(english, lang)
     if ai_text: return {"status":"ai","source":f"AI (HuggingFace → {lang})","english":english,"local":ai_text,"lang":lang,"category":"General","saved":False}
     hint = "" if HF_TOKEN else " (set HF_TOKEN to enable AI)"
@@ -535,13 +686,33 @@ def translate_article(text, lang):
     if not HF_TOKEN: return {"status":"no_ai","message":"HF_TOKEN not set. Article translation requires AI."}
     chunks = split_chunks(text)
     results, parts = [], []
+    success_count, fail_count = 0, 0
+    total_latency = 0
     for i, chunk in enumerate(chunks):
         db_row = db_exact(chunk, lang)
-        if db_row: local = db_row["local_text"]; src = "db"
-        else: local = call_hf_api(chunk, lang) or ""; src = "ai"
-        results.append({"index":i,"english":chunk,"local":local,"source":src})
-        if local: parts.append(local)
-    return {"status":"ok","lang":lang,"chunks":results,"total_chunks":len(results),"full_translation":"\n\n".join(parts)}
+        if db_row:
+            local = db_row["local_text"]
+            src = "db"
+            chunk_status = "from_db"
+            success_count += 1
+        else:
+            ai_result = call_hf_api_detailed(chunk, lang)
+            local = (ai_result or {}).get("translation") or ""
+            src = "ai"
+            chunk_status = "translated" if local else f"failed_{(ai_result or {}).get('error', 'unknown')}"
+            if local:
+                success_count += 1
+                total_latency += int((ai_result or {}).get("latency_ms") or 0)
+            else:
+                fail_count += 1
+        results.append({"index":i,"english":chunk,"local":local,"source":src,"status":chunk_status})
+        parts.append(local if local else "[translation unavailable]")
+    avg_latency = int(total_latency / success_count) if success_count else 0
+    return {
+        "status":"ok","lang":lang,"chunks":results,"total_chunks":len(results),
+        "success_count":success_count,"fail_count":fail_count,"avg_latency_ms":avg_latency,
+        "full_translation":"\n\n".join(parts)
+    }
 
 # =============================================================================
 #  HTML TEMPLATES
