@@ -369,6 +369,29 @@ def db_coverage(lang):
     result.sort(key=lambda x: x["count"])
     return result
 
+def db_pending_translations(limit=200):
+    return get_db().execute(
+        "SELECT t.*, u.username as contributor FROM translations t "
+        "LEFT JOIN users u ON t.added_by=u.id "
+        "WHERE t.quality_status='pending_review' "
+        "ORDER BY t.created_at DESC LIMIT ?",
+        (int(limit),)
+    ).fetchall()
+
+def db_update_translation_review(tid, status, reviewer_id):
+    db = get_db()
+    if status == "verified":
+        db.execute(
+            "UPDATE translations SET quality_status='verified', verified_by=?, verified_at=? WHERE id=?",
+            (reviewer_id, datetime.datetime.utcnow().isoformat(), tid)
+        )
+    elif status == "rejected":
+        db.execute(
+            "UPDATE translations SET quality_status='rejected', verified_by=?, verified_at=? WHERE id=?",
+            (reviewer_id, datetime.datetime.utcnow().isoformat(), tid)
+        )
+    db.commit()
+
 def db_user_contrib_count(uid):
     return get_db().execute(
         "SELECT COUNT(*) FROM translations WHERE added_by=?", (uid,)
@@ -1390,6 +1413,44 @@ td{vertical-align:middle!important;font-size:.85rem;}
       </div>
     </div>
 
+    <!-- AI REVIEW QUEUE -->
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-secondary text-white">
+          <i class="bi bi-shield-check me-2"></i>AI Translation Review Queue
+          <span class="badge bg-warning text-dark ms-2">{{ pending_translations|length }} pending</span>
+        </div>
+        <div class="card-body p-0">
+          {% if pending_translations %}
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+              <thead class="table-light"><tr><th>English</th><th>Translation</th><th>Language</th><th>Contributor</th><th>Added</th><th></th></tr></thead>
+              <tbody>{% for t in pending_translations %}
+                <tr>
+                  <td class="fw-semibold">{{ t.english_text }}</td>
+                  <td>{{ t.local_text }}</td>
+                  <td><span class="badge bg-light text-dark">{{ t.target_lang }}</span></td>
+                  <td class="text-muted small">{{ t.contributor or 'unknown' }}</td>
+                  <td class="text-muted small">{{ t.created_at[:16].replace('T',' ') }}</td>
+                  <td>
+                    <form method="POST" action="/admin/translations/{{ t.id }}/approve" class="d-inline">
+                      <button class="btn btn-success btn-sm py-0">Approve</button>
+                    </form>
+                    <form method="POST" action="/admin/translations/{{ t.id }}/reject" class="d-inline ms-1">
+                      <button class="btn btn-outline-danger btn-sm py-0">Reject</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}</tbody>
+            </table>
+          </div>
+          {% else %}
+            <div class="text-center py-4 text-muted small"><i class="bi bi-check2-circle fs-2 d-block mb-2 text-success"></i>No pending AI translations.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
     <div class="col-12">
       <div class="card">
         <div class="card-header bg-dark text-white"><i class="bi bi-people me-2"></i>All Users</div>
@@ -1930,6 +1991,7 @@ def admin_panel():
         pending_langs=pending_langs, all_langs=db_all_languages(),
         lang_counts=db_lang_counts(), user_contrib=user_contrib,
         messages_list=db_get_messages(), unread_count=db_unread_count(),
+        pending_translations=db_pending_translations(),
         user_badges=user_badges,
         DEFAULT_ADMIN_USERNAME=DEFAULT_ADMIN_USERNAME,
     )
@@ -2033,6 +2095,24 @@ def admin_clear_old_messages():
     """Delete messages older than 7 days."""
     n = db_delete_old_messages(days=7)
     flash(f"Deleted {n} message(s) older than 7 days.","success")
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/translations/<int:tid>/approve", methods=["POST"])
+@login_required
+@admin_required
+def admin_approve_translation(tid):
+    u = current_user()
+    db_update_translation_review(tid, "verified", u["id"])
+    flash("Translation approved and marked as verified.", "success")
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/translations/<int:tid>/reject", methods=["POST"])
+@login_required
+@admin_required
+def admin_reject_translation(tid):
+    u = current_user()
+    db_update_translation_review(tid, "rejected", u["id"])
+    flash("Translation marked as rejected.", "warning")
     return redirect(url_for("admin_panel"))
 
 # =============================================================================
