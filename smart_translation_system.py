@@ -243,27 +243,11 @@ def init_db():
         conn.execute("UPDATE translations SET english_norm=? WHERE id=?", (norm, r["id"]))
     conn.commit()
 
-    # Deduplicate canonical collisions (keep oldest row per normalized key+lang)
-    dupes = conn.execute("""
-        SELECT english_norm, target_lang, MIN(id) AS keep_id
-        FROM translations
-        WHERE english_norm IS NOT NULL AND english_norm <> ''
-        GROUP BY english_norm, target_lang
-        HAVING COUNT(*) > 1
-    """).fetchall()
-    for d in dupes:
-        conn.execute(
-            "DELETE FROM translations WHERE english_norm=? AND target_lang=? AND id<>?",
-            (d["english_norm"], d["target_lang"], d["keep_id"])
-        )
-    conn.commit()
-
     # Indexes
     for sql in [
         "CREATE INDEX IF NOT EXISTS idx_trans_lang     ON translations (target_lang)",
         "CREATE INDEX IF NOT EXISTS idx_trans_eng_lang ON translations (english_text, target_lang)",
         "CREATE INDEX IF NOT EXISTS idx_trans_norm_lang ON translations (english_norm, target_lang)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_trans_norm_lang ON translations (english_norm, target_lang) WHERE english_norm IS NOT NULL AND english_norm <> ''",
         "CREATE INDEX IF NOT EXISTS idx_trans_category ON translations (category)",
         "CREATE INDEX IF NOT EXISTS idx_trans_user     ON translations (added_by)",
         "CREATE INDEX IF NOT EXISTS idx_lang_approved  ON languages    (approved)",
