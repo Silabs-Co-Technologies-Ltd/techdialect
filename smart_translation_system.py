@@ -92,6 +92,8 @@ SOURCE_LANG  = "eng_Latn"
 
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "techdialect.db")
 SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
+NON_WORD_RE    = re.compile(r"[^\w\s]", re.UNICODE)
+MULTISPACE_RE  = re.compile(r"\s+")
 
 DEFAULT_ADMIN_USERNAME = "Silabstechdialect"
 DEFAULT_ADMIN_PASSWORD = "Techdialect@2024"
@@ -112,6 +114,13 @@ def get_badge(count):
         if count >= threshold:
             return slug, emoji, label, colour, dark
     return "none", "—", "No badge yet", "#6b7280", "#111827"
+
+def normalize_english_text(text):
+    """Canonicalize English source text for matching/deduplication."""
+    text = (text or "").strip().lower()
+    text = NON_WORD_RE.sub(" ", text)
+    text = MULTISPACE_RE.sub(" ", text)
+    return text.strip()
 
 CATEGORIES = [
     "Greetings & Farewells","Family & Relationships","Body & Health",
@@ -184,6 +193,7 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS translations (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         english_text TEXT    NOT NULL,
+        english_norm TEXT,
         local_text   TEXT    NOT NULL,
         target_lang  TEXT    NOT NULL,
         category     TEXT    NOT NULL DEFAULT 'General',
@@ -217,10 +227,43 @@ def init_db():
     except Exception:
         pass  # column already exists — safe to ignore
 
+    # ── v6.2 migration: add english_norm for canonical matching ───────────
+    try:
+        c.execute("ALTER TABLE translations ADD COLUMN english_norm TEXT")
+        conn.commit()
+    except Exception:
+        pass  # column already exists — safe to ignore
+
+    # Backfill normalized English text
+    rows = conn.execute(
+        "SELECT id, english_text FROM translations WHERE english_norm IS NULL OR english_norm=''"
+    ).fetchall()
+    for r in rows:
+        norm = normalize_english_text(r["english_text"])
+        conn.execute("UPDATE translations SET english_norm=? WHERE id=?", (norm, r["id"]))
+    conn.commit()
+
+    # Deduplicate canonical collisions (keep oldest row per normalized key+lang)
+    dupes = conn.execute("""
+        SELECT english_norm, target_lang, MIN(id) AS keep_id
+        FROM translations
+        WHERE english_norm IS NOT NULL AND english_norm <> ''
+        GROUP BY english_norm, target_lang
+        HAVING COUNT(*) > 1
+    """).fetchall()
+    for d in dupes:
+        conn.execute(
+            "DELETE FROM translations WHERE english_norm=? AND target_lang=? AND id<>?",
+            (d["english_norm"], d["target_lang"], d["keep_id"])
+        )
+    conn.commit()
+
     # Indexes
     for sql in [
         "CREATE INDEX IF NOT EXISTS idx_trans_lang     ON translations (target_lang)",
         "CREATE INDEX IF NOT EXISTS idx_trans_eng_lang ON translations (english_text, target_lang)",
+        "CREATE INDEX IF NOT EXISTS idx_trans_norm_lang ON translations (english_norm, target_lang)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_trans_norm_lang ON translations (english_norm, target_lang) WHERE english_norm IS NOT NULL AND english_norm <> ''",
         "CREATE INDEX IF NOT EXISTS idx_trans_category ON translations (category)",
         "CREATE INDEX IF NOT EXISTS idx_trans_user     ON translations (added_by)",
         "CREATE INDEX IF NOT EXISTS idx_lang_approved  ON languages    (approved)",
@@ -277,17 +320,29 @@ def db_translations(lang=None, category=None, limit=None, added_by=None):
     ).fetchall()
 
 def db_exact(english, lang):
+    norm = normalize_english_text(english)
     return get_db().execute(
-        "SELECT * FROM translations WHERE LOWER(english_text)=LOWER(?) AND target_lang=?",
-        (english.strip(), lang)
+        "SELECT * FROM translations WHERE english_norm=? AND target_lang=?",
+        (norm, lang)
     ).fetchone()
 
 def db_insert(english, local, lang, category, source="manual", added_by=None):
     try:
         db = get_db()
+        cleaned_english = english.strip()
+        english_norm = normalize_english_text(cleaned_english)
+        if not english_norm:
+            return False
+        # enforce canonical uniqueness (e.g., punctuation/case variants)
+        exists = db.execute(
+            "SELECT id FROM translations WHERE english_norm=? AND target_lang=? LIMIT 1",
+            (english_norm, lang)
+        ).fetchone()
+        if exists:
+            return False
         db.execute(
-            "INSERT INTO translations (english_text,local_text,target_lang,category,source,added_by,created_at) VALUES (?,?,?,?,?,?,?)",
-            (english.strip(),local.strip(),lang,category or "General",source,added_by,
+            "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,added_by,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (cleaned_english,english_norm,local.strip(),lang,category or "General",source,added_by,
              datetime.datetime.utcnow().isoformat())
         )
         db.commit()
