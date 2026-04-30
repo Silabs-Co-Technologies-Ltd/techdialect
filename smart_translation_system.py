@@ -151,12 +151,21 @@ CATEGORIES = [
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+DB_BOOTSTRAPPED = False
 
 # =============================================================================
 #  DATABASE
 # =============================================================================
 
 def get_db():
+    global DB_BOOTSTRAPPED
+    if not DB_BOOTSTRAPPED:
+        try:
+            init_db()
+            DB_BOOTSTRAPPED = True
+        except Exception as exc:
+            # Keep error visible in logs but allow request cycle to raise naturally.
+            print(f"[DB bootstrap error] {exc}")
     if "db" not in g:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
