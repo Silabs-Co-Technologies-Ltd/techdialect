@@ -251,26 +251,6 @@ def init_db():
         conn.commit()
     except Exception:
         pass  # column already exists — safe to ignore
-    # ── v6.3 migration: quality control metadata for translations ──────────
-    for col_sql in [
-        "ALTER TABLE translations ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'verified'",
-        "ALTER TABLE translations ADD COLUMN confidence REAL",
-        "ALTER TABLE translations ADD COLUMN verified_by INTEGER",
-        "ALTER TABLE translations ADD COLUMN verified_at TEXT",
-    ]:
-        try:
-            c.execute(col_sql)
-            conn.commit()
-        except Exception:
-            pass
-    # existing AI rows should be reviewed; manual/csv default to verified
-    conn.execute(
-        "UPDATE translations SET quality_status='pending_review' WHERE source='ai' AND (quality_status IS NULL OR quality_status='verified')"
-    )
-    conn.execute(
-        "UPDATE translations SET quality_status='verified' WHERE quality_status IS NULL OR quality_status=''"
-    )
-    conn.commit()
 
     # Backfill normalized English text
     rows = conn.execute(
@@ -281,27 +261,11 @@ def init_db():
         conn.execute("UPDATE translations SET english_norm=? WHERE id=?", (norm, r["id"]))
     conn.commit()
 
-    # Deduplicate canonical collisions (keep oldest row per normalized key+lang)
-    dupes = conn.execute("""
-        SELECT english_norm, target_lang, MIN(id) AS keep_id
-        FROM translations
-        WHERE english_norm IS NOT NULL AND english_norm <> ''
-        GROUP BY english_norm, target_lang
-        HAVING COUNT(*) > 1
-    """).fetchall()
-    for d in dupes:
-        conn.execute(
-            "DELETE FROM translations WHERE english_norm=? AND target_lang=? AND id<>?",
-            (d["english_norm"], d["target_lang"], d["keep_id"])
-        )
-    conn.commit()
-
     # Indexes
     for sql in [
         "CREATE INDEX IF NOT EXISTS idx_trans_lang     ON translations (target_lang)",
         "CREATE INDEX IF NOT EXISTS idx_trans_eng_lang ON translations (english_text, target_lang)",
         "CREATE INDEX IF NOT EXISTS idx_trans_norm_lang ON translations (english_norm, target_lang)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_trans_norm_lang ON translations (english_norm, target_lang) WHERE english_norm IS NOT NULL AND english_norm <> ''",
         "CREATE INDEX IF NOT EXISTS idx_trans_category ON translations (category)",
         "CREATE INDEX IF NOT EXISTS idx_trans_user     ON translations (added_by)",
         "CREATE INDEX IF NOT EXISTS idx_lang_approved  ON languages    (approved)",
@@ -360,8 +324,7 @@ def db_translations(lang=None, category=None, limit=None, added_by=None):
 def db_exact(english, lang):
     norm = normalize_english_text(english)
     return get_db().execute(
-        "SELECT * FROM translations WHERE english_norm=? AND target_lang=? "
-        "ORDER BY CASE quality_status WHEN 'verified' THEN 0 WHEN 'pending_review' THEN 1 ELSE 2 END, created_at DESC",
+        "SELECT * FROM translations WHERE english_norm=? AND target_lang=?",
         (norm, lang)
     ).fetchone()
 
@@ -379,10 +342,9 @@ def db_insert(english, local, lang, category, source="manual", added_by=None):
         ).fetchone()
         if exists:
             return False
-        quality_status = "pending_review" if source == "ai" else "verified"
         db.execute(
-            "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,quality_status,added_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (cleaned_english,english_norm,local.strip(),lang,category or "General",source,quality_status,added_by,
+            "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,added_by,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (cleaned_english,english_norm,local.strip(),lang,category or "General",source,added_by,
              datetime.datetime.utcnow().isoformat())
         )
         db.commit()
