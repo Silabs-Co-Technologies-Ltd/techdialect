@@ -245,12 +245,19 @@ def init_db():
     except Exception:
         pass  # column already exists — safe to ignore
 
-    # ── v6.2 migration: add english_norm for canonical matching ───────────
-    try:
-        c.execute("ALTER TABLE translations ADD COLUMN english_norm TEXT")
-        conn.commit()
-    except Exception:
-        pass  # column already exists — safe to ignore
+    # ── v6.2+ migrations: align older databases with new translation schema ──
+    for sql in [
+        "ALTER TABLE translations ADD COLUMN english_norm TEXT",
+        "ALTER TABLE translations ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'verified'",
+        "ALTER TABLE translations ADD COLUMN confidence REAL",
+        "ALTER TABLE translations ADD COLUMN verified_by INTEGER",
+        "ALTER TABLE translations ADD COLUMN verified_at TEXT",
+    ]:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception:
+            pass  # column already exists — safe to ignore
 
     # Backfill normalized English text
     rows = conn.execute(
