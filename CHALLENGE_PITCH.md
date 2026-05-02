@@ -1,33 +1,59 @@
-# Techdialect: Nigerian Language Dataset Engine
-**₦10 Million Tech Challenge — Winning Pitch Strategy**
+# Techdialect: Nigeria’s Local-Language AI Data Infrastructure
+**₦10 Million Tech Challenge — Updated Winning Pitch (2026)**
 
-## 1. The Problem
-Nigeria has over 500 languages, but most AI technology (like ChatGPT) only supports a few. This "Digital Divide" leaves millions of Nigerians behind. Existing datasets are small, scattered, and expensive to build.
+## 1) The Problem We Are Solving
+Nigeria has 500+ languages, but digital systems still center only a handful. This creates a practical exclusion problem:
+- Citizens can’t access critical information in their strongest language.
+- Builders lack affordable, reusable language datasets.
+- AI tools remain weak for most Nigerian languages due to sparse verified training data.
 
-## 2. The Solution: Techdialect
-Techdialect is a **3-tier translation engine** and **community flywheel** designed to build the largest open-source Nigerian language dataset in the world.
+Techdialect addresses both immediate translation needs and long-term dataset scarcity at the same time.
 
-*   **Tier 1: Exact Match** (Verified human data)
-*   **Tier 2: Fuzzy Match** (Smart retrieval from existing data)
-*   **Tier 3: AI Translation** (HuggingFace NLLB-200 integration)
+## 2) The Product: A Self-Improving Translation Engine
+Techdialect is a production-ready platform that translates English into Nigerian languages while continuously building a structured dataset.
 
-## 3. Why We Will Win
-We aren't just an app; we are a **platform**. 
-*   **Zero-Cost Scaling**: Built to run on free-tier infrastructure (PythonAnywhere) using SQLite with WAL mode for high performance.
-*   **Incentivized Growth**: Our **Badge & Streak System** gamifies contribution. Users earn "Gold Contributor" status, which we can leverage for community moderation.
-*   **Developer-First**: With our new **Public API** and **PWA support**, other developers can build local-language apps using our engine.
-*   **Verified Data**: Every entry is tagged with its source (Human vs AI), creating a high-quality "Gold Standard" dataset for future AI training.
+### Translation Intelligence (4-tier fallback)
+1. **Exact Match** — return trusted verified data instantly.
+2. **Fuzzy Match** — retrieve close equivalents for similar phrasing.
+3. **AI Translation** — use NLLB-200 when no strong match exists.
+4. **Human-in-the-loop Save** — new results can be reviewed and stored to improve future accuracy.
 
-## 4. Current Impact
-*   **Multi-User Ready**: Full auth system with admin approval workflow.
-*   **Dataset Engine**: Optimized for bulk CSV uploads and exports.
-*   **Accessible**: Works on low-end devices and slow 2G/3G networks via PWA technology.
+### What makes this durable
+- **Community data flywheel:** every accepted entry improves future outputs.
+- **Quality controls:** admin review workflows and status tagging (verified/pending/rejected).
+- **Language expansion:** users can propose new languages; admins approve and publish quickly.
 
-## 5. The Roadmap (Post-Prize)
-With the ₦10 million prize, we will:
-1.  **Scale Infrastructure**: Move to PostgreSQL and dedicated hosting.
-2.  **Voice-to-Voice**: Implement STT/TTS for non-literate users.
-3.  **University Outreach**: Partner with Linguistics departments to verify the dataset.
+## 3) Why Techdialect Is Positioned to Win
+We are not just a translator; we are **language infrastructure**.
+
+- **Capital-efficient scaling:** lightweight stack (Flask + SQLite WAL) enables strong performance on low-cost hosting.
+- **Contributor growth engine:** badges, leaderboards, and shareable profiles increase retention and community moderation.
+- **High utility now:** web app, bulk CSV import/export, and API endpoints already support real use cases.
+- **Data asset creation:** source-aware entries and review states produce cleaner corpora for research and enterprise use.
+
+## 4) Traction and Current Capability
+- **Live multi-user platform** with registration, approval, and role-based admin controls.
+- **Supported live languages:** Tiv, Yoruba, Hausa, Igbo, and Nigerian Pidgin.
+- **Operational admin tools:** inbox, user management, language approvals, and dataset oversight.
+- **Low-bandwidth accessible experience** suitable for mobile-first Nigerian usage.
+
+## 5) Prize Utilization Plan (₦10M)
+If selected, we will execute in three tracks:
+
+1. **Reliability & Scale**
+   - Migrate data layer to PostgreSQL + managed backups.
+   - Add observability and uptime monitoring.
+
+2. **Trust & Quality**
+   - Expand reviewer workflows and sampling-based QA.
+   - Build language-specific validation rules and glossary consistency checks.
+
+3. **Inclusion & Reach**
+   - Add speech pathways (STT/TTS) for low-literacy users.
+   - Partner with universities and language communities for validation sprints.
+
+## 6) Expected National Value
+Techdialect can become the foundational language layer for education, health communication, civic information, and local commerce applications—while creating Nigeria-owned language data for future AI systems.
 
 ---
-**Techdialect: Technologia Omnibus (Technology for All)**
+**Techdialect — Technologia Omnibus (Technology for All).**
