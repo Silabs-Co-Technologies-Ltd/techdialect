@@ -2262,7 +2262,7 @@ def upload_csv_route():
         content = file.read().decode("utf-8-sig")
         reader  = csv.DictReader(io.StringIO(content))
         added, dupes, bad, seeded = 0, 0, 0, 0
-        is_admin = (u and u.get("role") == "admin")
+        is_admin = bool(u and u["role"] == "admin")
         for row in reader:
             eng  = (row.get("english_text") or "").strip()
             loc  = (row.get("local_text")   or "").strip()
