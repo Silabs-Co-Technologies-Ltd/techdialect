@@ -378,6 +378,24 @@ def db_insert(english, local, lang, category, source="manual", added_by=None, al
     except sqlite3.IntegrityError:
         return False
 
+def db_update_translation(tid, local, category, editor_id):
+    db = get_db()
+    row = db.execute("SELECT id, added_by, target_lang FROM translations WHERE id=?", (tid,)).fetchone()
+    if not row:
+        return None
+    u = current_user()
+    if not u:
+        return False
+    can_edit = (u["role"] == "admin") or (row["added_by"] == editor_id)
+    if not can_edit:
+        return False
+    db.execute(
+        "UPDATE translations SET local_text=?, category=?, source='manual_edit', added_by=?, created_at=? WHERE id=?",
+        (local.strip(), category or "General", editor_id, datetime.datetime.utcnow().isoformat(), tid)
+    )
+    db.commit()
+    return row["target_lang"]
+
 def db_count(lang=None, category=None):
     wheres, params = [], []
     if lang:     wheres.append("target_lang=?"); params.append(lang)
@@ -1069,11 +1087,22 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
           {% if recent_entries %}
           <div class="table-responsive" style="max-height:340px;overflow-y:auto;">
             <table class="table table-sm table-hover tbl mb-0">
-              <thead class="table-light sticky-top"><tr><th>English</th><th>{{ selected_lang }}</th><th>Category</th><th>By</th></tr></thead>
+              <thead class="table-light sticky-top"><tr><th>English</th><th>{{ selected_lang }}</th><th>Category</th><th>By</th><th>Action</th></tr></thead>
               <tbody>{% for t in recent_entries %}
                 <tr><td>{{ t.english_text }}</td><td class="fw-semibold text-primary">{{ t.local_text }}</td>
                 <td><span class="badge bg-light text-dark border" style="font-size:.68rem">{{ t.category }}</span></td>
-                <td class="text-muted" style="font-size:.78rem">{{ t.contributor or '—' }}</td></tr>
+                <td class="text-muted" style="font-size:.78rem">{{ t.contributor or '—' }}</td>
+                <td>
+                  {% if user and (user.role == 'admin' or user.id == t.added_by) %}
+                  <form method="POST" action="/translations/{{ t.id }}/edit" class="d-flex gap-1">
+                    <input type="text" name="local_text" class="form-control form-control-sm" value="{{ t.local_text }}" required>
+                    <input type="hidden" name="category" value="{{ t.category }}">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Edit</button>
+                  </form>
+                  {% else %}
+                  <span class="text-muted small">—</span>
+                  {% endif %}
+                </td></tr>
               {% endfor %}</tbody>
             </table>
           </div>
@@ -2248,6 +2277,28 @@ def save_route():
         flash(f'"{english}" already exists in {lang}.',"info")
     session["selected_lang"] = lang
     return redirect(url_for("dashboard", lang=lang))
+
+@app.route("/translations/<int:tid>/edit", methods=["POST"])
+@login_required
+def edit_translation_route(tid):
+    local = request.form.get("local_text", "").strip()
+    category = request.form.get("category", "General").strip()
+    if not local:
+        flash("Translation text cannot be empty.", "warning")
+        return redirect(url_for("dashboard", lang=session.get("selected_lang", "Tiv")))
+    if category not in CATEGORIES:
+        category = "General"
+    u = current_user()
+    updated_lang = db_update_translation(tid, local, category, u["id"])
+    if updated_lang is None:
+        flash("Translation not found.", "danger")
+        return redirect(url_for("dashboard", lang=session.get("selected_lang", "Tiv")))
+    if updated_lang is False:
+        flash("You can only edit your own translations (unless you are admin).", "danger")
+        return redirect(url_for("dashboard", lang=session.get("selected_lang", "Tiv")))
+    session["selected_lang"] = updated_lang
+    flash("✅ Translation updated.", "success")
+    return redirect(url_for("dashboard", lang=updated_lang))
 
 @app.route("/upload_csv", methods=["POST"])
 @login_required
