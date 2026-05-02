@@ -31,3 +31,10 @@ Recognizing the importance of community-led growth, the administrative interface
 | **API Documentation** | Interactive documentation at `/docs` | Showcases platform maturity and developer support. |
 
 The system is now fully optimized and strategically positioned for a winning application. All relevant documentation, including the high-level pitch and the zero-budget roadmap, has been updated to reflect these latest technical milestones.
+
+
+## CSV Seeding and Missing Translation UX (Latest Update)
+
+To support rapid dataset growth before competition submission, the upload pipeline now supports an **admin English-only CSV seeding mode**. When an admin uploads rows with `english_text` but no `local_text`, the system creates `[PENDING]` records across all approved languages. Contributors can then complete those translations progressively without breaking uniqueness constraints.
+
+In addition, when a user lookup fails (`not_found`), the interface now provides an immediate “Add this translation now” call-to-action, reducing friction and improving contribution conversion during live demos.
