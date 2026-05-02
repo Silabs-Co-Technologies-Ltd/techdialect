@@ -28,3 +28,14 @@ To win the ₦10 million challenge, the system needs to feel like a "complete pr
 
 ### My Recommendation
 I will now proceed to implement these **zero-cost** updates. They require no new servers, no new APIs, and no money—just better code. This will significantly increase your "Innovation" and "Feasibility" scores in the tech challenge.
+
+
+## 6. Dataset Expansion Workflow (Competition-Critical)
+* **The Issue**: Bulk onboarding usually requires complete bilingual rows, which slows early dataset scaling.
+* **The Fix**: Added an admin English-only CSV seeding workflow that auto-creates `[PENDING]` entries across all approved languages.
+* **Impact**: Lets the team upload a large English backbone quickly, then fill local translations gradually with community contributors.
+
+## 7. Missing Translation Conversion UX
+* **The Issue**: Users who hit “not found” can drop off before contributing.
+* **The Fix**: Added a direct “Add this translation now” CTA when a lookup is missing.
+* **Impact**: Faster contribution loop and better live-demo experience for judges.

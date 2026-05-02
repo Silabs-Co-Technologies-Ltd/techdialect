@@ -44,7 +44,7 @@ Any user can propose additional languages. Admins approve them and they go live 
 - **Fuzzy Matching** — Finds close matches even when exact words aren't in the database
 - **Contributor Badges** — Earn badges as you grow your contribution count
 - **Coverage Dashboard** — See which categories need more words
-- **CSV Bulk Upload** — Import hundreds of translations at once
+- **CSV Bulk Upload** — Import translations in bulk, including admin English-only seeding workflow
 - **CSV Export** — Download the full dataset for any language
 
 ### For Admins
@@ -97,7 +97,7 @@ Tier 2: Fuzzy match (>55%)?   ──YES──▶  Return closest match
 Tier 3: HuggingFace AI call   ──OK──▶   Return AI translation + offer to save
         │ FAIL
         ▼
-Tier 4: Not found — prompt user to add manually
+Tier 4: Not found — prompt user with a one-click “Add this translation now” action
 ```
 
 Every AI translation that gets saved becomes a training example for the next query — this is the flywheel that makes the system self-improving.
@@ -195,13 +195,14 @@ messages     (id, user_id, subject, body, created_at, read_at)
 
 ```csv
 english_text,local_text,category,target_lang
-Good morning,,,Tiv
-Hello,,,Yoruba
+Good morning,Msuugh,Tiv,General
+Hello,Bawo,Yoruba,Greetings & Farewells
 ```
 
 - `target_lang` defaults to the currently selected language if omitted
 - `category` defaults to `General` if omitted
 - Duplicate `(english_text, target_lang)` pairs are silently skipped
+- **Admin-only seeding:** if `local_text` is empty, each `english_text` row is seeded to **all approved languages** with `[PENDING]`, so translators can fill entries gradually
 
 ---
 

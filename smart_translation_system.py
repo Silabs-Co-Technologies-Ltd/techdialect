@@ -328,7 +328,7 @@ def db_exact(english, lang):
         (norm, lang)
     ).fetchone()
 
-def db_insert(english, local, lang, category, source="manual", added_by=None):
+def db_insert(english, local, lang, category, source="manual", added_by=None, allow_update_pending=True):
     try:
         db = get_db()
         cleaned_english = english.strip()
@@ -341,11 +341,24 @@ def db_insert(english, local, lang, category, source="manual", added_by=None):
             (english_norm, lang)
         ).fetchone()
         if exists:
+            if allow_update_pending:
+                existing = db.execute(
+                    "SELECT id, local_text, quality_status FROM translations WHERE id=?",
+                    (exists["id"],)
+                ).fetchone()
+                if existing and existing["local_text"] == "[PENDING]":
+                    db.execute(
+                        "UPDATE translations SET local_text=?, category=?, source=?, quality_status='verified', added_by=?, created_at=? WHERE id=?",
+                        (local.strip(), category or "General", source, added_by, datetime.datetime.utcnow().isoformat(), exists["id"])
+                    )
+                    db.commit()
+                    return True
             return False
         db.execute(
-            "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,added_by,created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (cleaned_english,english_norm,local.strip(),lang,category or "General",source,added_by,
-             datetime.datetime.utcnow().isoformat())
+            "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,quality_status,added_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (cleaned_english,english_norm,local.strip(),lang,category or "General",source,
+             "pending_review" if source in ("csv_seed", "csv_seed_admin") else "verified",
+             added_by, datetime.datetime.utcnow().isoformat())
         )
         db.commit()
         today = datetime.date.today().isoformat()
@@ -1016,7 +1029,10 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
               {% elif r.status=='ai' %}<span class="badge text-white" style="background:#6f42c1">{{ r.source }}</span>
               {% else %}<span class="badge bg-danger">{{ r.source }}</span>{% endif %}
             </div>
-            {% if r.status in ['error','not_found'] %}<p class="text-danger mb-0 small">{{ r.get('message','') }}</p>
+            {% if r.status in ['error','not_found'] %}<p class="text-danger mb-2 small">{{ r.get('message','') }}</p>
+              {% if r.status=='not_found' %}
+              <a href="#quickForm" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-circle me-1"></i>Add this translation now</a>
+              {% endif %}
             {% else %}
               {% if r.status=='fuzzy' and r.get('original_query') %}<small class="text-muted d-block mb-1">You searched: "<em>{{ r.original_query }}</em>" → closest:</small>{% endif %}
               <div class="text-muted small mb-1"><strong>English:</strong> {{ r.english }}</div>
@@ -1138,6 +1154,7 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
             <form method="POST" action="/upload_csv" enctype="multipart/form-data">
               <input type="hidden" name="target_lang" value="{{ selected_lang }}">
               <div class="mb-3"><input type="file" name="csv_file" class="form-control" accept=".csv" required></div>
+              {% if user.role == 'admin' %}<div class="small text-muted mb-2">Admin tip: upload CSV with only <code>english_text</code> to seed all approved languages as <code>[PENDING]</code>, then fill translations gradually.</div>{% endif %}
               <button type="submit" class="btn btn-warning text-dark fw-semibold w-100"><i class="bi bi-upload me-2"></i>Upload CSV</button>
             </form>
           </div>
@@ -2235,18 +2252,29 @@ def upload_csv_route():
     try:
         content = file.read().decode("utf-8-sig")
         reader  = csv.DictReader(io.StringIO(content))
-        added, dupes, bad = 0, 0, 0
+        added, dupes, bad, seeded = 0, 0, 0, 0
+        is_admin = (u and u.get("role") == "admin")
         for row in reader:
             eng  = (row.get("english_text") or "").strip()
             loc  = (row.get("local_text")   or "").strip()
-            lang = (row.get("target_lang")  or default_lang).strip()
             cat  = (row.get("category")     or "General").strip()
-            if not eng or not loc: bad += 1; continue
-            if lang not in approved_langs: lang = default_lang
+            lang = (row.get("target_lang")  or default_lang).strip()
+            if not eng: bad += 1; continue
             if cat not in CATEGORIES: cat = "General"
+
+            if not loc and is_admin:
+                for lang_name in approved_langs:
+                    if db_insert(eng,"[PENDING]",lang_name,cat,"csv_seed_admin",u["id"],allow_update_pending=False): seeded += 1
+                    else: dupes += 1
+                continue
+
+            if not loc: bad += 1; continue
+            if lang not in approved_langs: lang = default_lang
             if db_insert(eng,loc,lang,cat,"csv",u["id"]): added += 1
             else: dupes += 1
-        msg = f"Upload done: {added} added, {dupes} duplicates skipped"
+        msg = f"Upload done: {added} translations added, {dupes} duplicates skipped"
+        if seeded:
+            msg += f", {seeded} admin seed rows created as [PENDING] across all languages"
         msg += f", {bad} incomplete rows skipped." if bad else "."
         flash(msg,"success" if added else "warning")
     except Exception as exc:
