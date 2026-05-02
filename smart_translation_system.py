@@ -2005,6 +2005,7 @@ def badge_download(username):
 @admin_required
 def admin_panel():
     db = get_db()
+    user = current_user()
     rows = db.execute("SELECT added_by, COUNT(*) as cnt FROM translations GROUP BY added_by").fetchall()
     user_contrib = {r["added_by"]: r["cnt"] for r in rows}
     pending_langs = db.execute(
@@ -2026,6 +2027,7 @@ def admin_panel():
         messages_list=db_get_messages(), unread_count=db_unread_count(),
         pending_translations=db_pending_translations(),
         user_badges=user_badges,
+        user=user,
         DEFAULT_ADMIN_USERNAME=DEFAULT_ADMIN_USERNAME,
     )
 
