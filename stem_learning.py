@@ -3,7 +3,7 @@
 English lessons are editorial source material. No local-language translation is
 invented; those must be reviewed and explicitly published later.
 """
-from flask import Blueprint, abort, render_template_string, request
+from flask import Blueprint, abort, render_template_string, request, Response
 
 stem_bp = Blueprint("stem", __name__, url_prefix="/learn")
 
@@ -30,7 +30,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 .option:hover{background:#edf7fa}.option.correct{border-color:#25754a;background:#e6f6ec}.option.incorrect{border-color:#9f4d40;background:#fcece9}
 .note{border-left:4px solid #e5a14a;padding:10px 14px;background:#fffaec}
 </style></head><body><main class="wrap">
-<header><strong>TechDialect STEM</strong><a href="/learn">All lessons</a></header>
+<header><strong>TechDialect STEM</strong><a href="/learn/">All lessons</a><small id="network-status" role="status" aria-live="polite"></small></header>
 {% if lesson %}
 <article><p class="tag">{{ lesson.subject }} · {{ lesson.level }}</p><h1>{{ lesson.title }}</h1>
 <h2>{{ lesson.concept }}</h2><p>{{ lesson.explanation }}</p>
@@ -76,7 +76,24 @@ document.getElementById("feedback").textContent=button.dataset.correct==="true"?
 {% for item in lessons %}<article><p class="tag">{{ item.subject }} · {{ item.level }}</p>
 <h2><a href="{{ url_for('stem.lesson_detail',slug=item.slug) }}">{{ item.title }}</a></h2>
 <p>{{ item.concept }}</p></article>{% endfor %}
-{% endif %}</main></body></html>"""
+{% endif %}
+<script>
+(function() {
+  const el = document.getElementById('network-status');
+  function setConnection() {
+    if(el) el.textContent = navigator.onLine ? 'Online' : 'Offline: saved lessons only';
+  }
+  window.addEventListener('online', setConnection);
+  window.addEventListener('offline', setConnection);
+  setConnection();
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/learn/sw.js', {scope:'/learn/'})
+        .catch(function() { if(el) el.textContent = 'Offline downloads unavailable'; });
+    });
+  }
+})();
+</script></main></body></html>"""
 
 @stem_bp.get("/")
 def index():
@@ -129,3 +146,46 @@ def lesson_detail(slug):
     return render_template_string(PAGE, page_title=lesson["title"], lesson=lesson,
                                   languages=languages, selected_lang=selected, term=term,
                                   edition=edition, edition_choices=edition_choices)
+
+# Cache only public learning materials, not admin pages, credentials or private records.
+# Previously visited language editions are cached for offline revisiting.
+SW_VERSION = "techdialect-stem-v1"
+SW_JS = r"""const CACHE_NAME = "techdialect-stem-v1";
+const PRECACHE = ["/learn/", "/learn/plant-food", "/learn/fractions",
+                  "/learn/water-cycle", "/learn/computer-input", "/learn/simple-circuits"];
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME)
+    .then((cache) => cache.addAll(PRECACHE))
+    .then(() => self.skipWaiting()));
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil(caches.keys().then((names) =>
+    Promise.all(names.filter((name) =>
+      name.startsWith("techdialect-stem-") && name !== CACHE_NAME)
+      .map((name) => caches.delete(name)))
+  ).then(() => self.clients.claim()));
+});
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (req.method !== "GET" || url.origin !== self.location.origin ||
+      !url.pathname.startsWith("/learn/") || url.pathname === "/learn/sw.js") return;
+  event.respondWith(
+    fetch(req).then((response) => {
+      if (response.ok && response.type === "basic") {
+        const saved = response.clone();
+        event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(req, saved)));
+      }
+      return response;
+    }).catch(() => caches.match(req).then((saved) =>
+      saved || caches.match("/learn/")))
+  );
+});
+"""
+
+@stem_bp.get("/sw.js")
+def service_worker():
+    response = Response(SW_JS, mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Service-Worker-Allowed"] = "/learn/"
+    return response

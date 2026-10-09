@@ -30,3 +30,17 @@ def test_language_selection_and_invalid_language(monkeypatch):
     client = app.test_client()
     assert b'Reviewed example' in client.get('/learn/plant-food?language=Tiv').data
     assert client.get('/learn/plant-food?language=NotSupported').status_code == 400
+
+def test_offline_worker_is_limited_to_public_stem():
+    app = Flask(__name__)
+    app.register_blueprint(stem_learning.stem_bp)
+    client = app.test_client()
+    response=client.get("/learn/sw.js")
+    assert response.status_code == 200
+    assert response.mimetype == "application/javascript"
+    assert response.headers["Service-Worker-Allowed"] == "/learn/"
+    script=response.data
+    assert b"techdialect-stem-v1" in script
+    assert b"/learn/plant-food" in script
+    assert b"req.method" in script
+    assert b"url.pathname.startsWith" in script
