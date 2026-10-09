@@ -39,6 +39,14 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 <option value="">English only</option>
 {% for lang in languages %}<option value="{{ lang }}" {% if lang==selected_lang %}selected{% endif %}>{{ lang }}</option>{% endfor %}
 </select><button type="submit">Show terminology</button></form>
+{% if edition %}
+<section class="card"><p class="tag">Human-reviewed {{ selected_lang }} lesson edition</p>
+<p>{{ edition.explanation }}</p><p><strong>Example:</strong> {{ edition.example_text }}</p>
+<h3>{{ edition.question }}</h3>
+{% for choice in edition_choices %}<p>{{ loop.index }}. {{ choice }}</p>{% endfor %}
+<p class="muted">These choices are educational content; interactive local-language scoring will be introduced in a later stage.</p>
+</section>
+{% endif %}
 {% if selected_lang %}
 {% if term %}
 <section class="card" aria-label="Verified local-language term">
@@ -106,5 +114,15 @@ def lesson_detail(slug):
     if selected and selected not in languages:
         abort(400)
     term = reviewed_term(lesson["concept"], selected)
+    edition = None
+    edition_choices = []
+    if selected:
+        import json
+        from smart_translation_system import get_db
+        from lesson_editor import published_edition
+        edition = published_edition(get_db(), slug, selected)
+        if edition:
+            edition_choices = json.loads(edition["options_json"])
     return render_template_string(PAGE, page_title=lesson["title"], lesson=lesson,
-                                  languages=languages, selected_lang=selected, term=term)
+                                  languages=languages, selected_lang=selected, term=term,
+                                  edition=edition, edition_choices=edition_choices)
