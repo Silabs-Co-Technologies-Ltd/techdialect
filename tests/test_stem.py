@@ -63,3 +63,20 @@ def test_published_local_lesson_has_independent_quiz(monkeypatch):
     assert b"Local-language practice" in page.data
     assert page.data.count(b'data-quiz') >= 2
     assert b"Correct choice" in page.data
+
+
+def test_device_only_learning_progress_markup(monkeypatch):
+    monkeypatch.setattr(stem_learning, 'available_languages', lambda: ['Tiv'])
+    monkeypatch.setattr(stem_learning, 'reviewed_term', lambda concept, lang: None)
+    monkeypatch.setattr(stem_learning, 'published_lesson_edition', lambda slug, lang: None)
+    app=Flask(__name__)
+    app.register_blueprint(stem_learning.stem_bp)
+    client=app.test_client()
+    listing=client.get('/learn/').data
+    page=client.get('/learn/plant-food').data
+    assert b'learning-progress' in listing
+    assert b'clear-progress' in listing
+    assert b'data-lesson="plant-food"' in listing
+    assert b'data-lesson-detail="plant-food"' in page
+    assert b"localStorage.setItem" in page
+    assert b"data-language=\"English\"" in page

@@ -29,10 +29,12 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 .option{display:block;width:100%;padding:14px;border:1px solid #c8d6dd;background:#fff;border-radius:10px;text-align:left;margin:9px 0;cursor:pointer;font-size:1rem}
 .option:hover{background:#edf7fa}.option.correct{border-color:#25754a;background:#e6f6ec}.option.incorrect{border-color:#9f4d40;background:#fcece9}
 .note{border-left:4px solid #e5a14a;padding:10px 14px;background:#fffaec}
+.progress-indicator{display:block;color:#285f49;font-weight:600}
+.reset-progress{border:1px solid #b4cad1;border-radius:8px;padding:8px 12px;background:#fff;margin:6px 0 16px}
 </style></head><body><main class="wrap">
 <header><strong>TechDialect STEM</strong><a href="/learn/">All lessons</a><small id="network-status" role="status" aria-live="polite"></small></header>
 {% if lesson %}
-<article><p class="tag">{{ lesson.subject }} · {{ lesson.level }}</p><h1>{{ lesson.title }}</h1>
+<article data-lesson-detail="{{ lesson.slug }}"><p class="tag">{{ lesson.subject }} · {{ lesson.level }}</p><h1>{{ lesson.title }}</h1>
 <h2>{{ lesson.concept }}</h2><p>{{ lesson.explanation }}</p>
 <form method="get"><label for="language">Reviewed terminology language</label>
 <select name="language" id="language">
@@ -42,7 +44,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 {% if edition %}
 <section class="card"><p class="tag">Human-reviewed {{ selected_lang }} lesson edition</p>
 <p>{{ edition.explanation }}</p><p><strong>Example:</strong> {{ edition.example_text }}</p>
-<div class="quiz" data-quiz aria-label="Local-language practice">
+<div class="quiz" data-quiz data-language="{{ selected_lang }}" aria-label="Local-language practice">
 <h3>{{ edition.question }}</h3>
 {% for choice in edition_choices %}
 <button type="button" class="option" data-correct="{{ 'true' if loop.index0==0 else 'false' }}">{{ choice }}</button>
@@ -63,7 +65,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 {% endif %}
 {% endif %}
 <p class="note">English source lesson. Local-language editions will appear only after teacher and native-speaker review.</p>
-<div class="quiz" data-quiz aria-label="English practice">
+<div class="quiz" data-quiz data-language="English" aria-label="English practice">
 <h3>Check your understanding</h3><p>{{ lesson.question }}</p>
 {% for option in lesson.options %}
 <button type="button" class="option" data-correct="{{ 'true' if loop.index0 == lesson.answer else 'false' }}">{{ option }}</button>
@@ -72,12 +74,51 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 {% else %}
 <h1>Science and mathematics, made understandable</h1>
 <p class="muted">Explore the first editorial English STEM lessons. Reviewed Nigerian-language lessons are coming next.</p>
-{% for item in lessons %}<article><p class="tag">{{ item.subject }} · {{ item.level }}</p>
+<p id="learning-progress" role="status" aria-live="polite"></p>
+<button type="button" id="clear-progress" class="reset-progress">Clear progress on this device</button>
+{% for item in lessons %}<article data-lesson="{{ item.slug }}"><p class="tag">{{ item.subject }} · {{ item.level }}</p>
 <h2><a href="{{ url_for('stem.lesson_detail',slug=item.slug) }}">{{ item.title }}</a></h2>
-<p>{{ item.concept }}</p></article>{% endfor %}
+<p>{{ item.concept }}</p><small class="progress-indicator">Not practiced yet</small></article>{% endfor %}
 {% endif %}
 <script>
 (function() {
+  // Only the device stores progress. No names, accounts or learner details are sent.
+  const progressKey = 'techdialect-stem-progress-v1';
+  function readProgress() {
+    try {
+      const value = JSON.parse(localStorage.getItem(progressKey) || '{}');
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch (e) { return {}; }
+  }
+  function saveProgress(slug, language) {
+    try {
+      const saved = readProgress();
+      saved[slug + '|' + language] = true;
+      localStorage.setItem(progressKey, JSON.stringify(saved));
+    } catch (e) { /* Browsers with storage disabled still allow learning. */ }
+  }
+  function refreshProgress() {
+    const saved = readProgress();
+    let completed = 0;
+    const items = document.querySelectorAll('[data-lesson]');
+    items.forEach(function(item) {
+      const isDone = Object.keys(saved).some(function(key) {
+        return key.startsWith(item.dataset.lesson + '|') && saved[key] === true;
+      });
+      const indicator = item.querySelector('.progress-indicator');
+      if (indicator) indicator.textContent = isDone ? 'Practiced successfully ✓' : 'Not practiced yet';
+      if (isDone) completed++;
+    });
+    const status = document.getElementById('learning-progress');
+    if (status) status.textContent = completed + ' of ' + items.length + ' lessons practiced successfully on this device.';
+  }
+  const resetButton = document.getElementById('clear-progress');
+  if (resetButton) resetButton.addEventListener('click', function() {
+    if (!window.confirm('Clear saved STEM progress on this device?')) return;
+    try { localStorage.removeItem(progressKey); } catch (e) {}
+    refreshProgress();
+  });
+  refreshProgress();
   document.querySelectorAll('[data-quiz]').forEach(function(quiz) {
     const choices = Array.from(quiz.querySelectorAll('button.option'));
     // Correct-answer positions should not be predictable from the source template.
@@ -97,6 +138,10 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
         status.textContent = button.dataset.correct === 'true'
           ? 'Correct! Well done.'
           : 'Not quite. The correct answer is highlighted.';
+        if (button.dataset.correct === 'true') {
+          const detail = document.querySelector('[data-lesson-detail]');
+          if (detail) saveProgress(detail.dataset.lessonDetail, quiz.dataset.language || 'English');
+        }
       });
     });
   });

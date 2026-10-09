@@ -982,9 +982,11 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
       <a href="{{ url_for('contact') }}" class="chip text-decoration-none text-info">
         <i class="bi bi-envelope"></i>Contact
       </a>
-      <a href="{{ url_for('logout') }}" class="chip text-decoration-none text-danger">
-        <i class="bi bi-box-arrow-right"></i>{{ user.username }}
-      </a>
+      <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
+        <button type="submit" class="chip text-decoration-none text-danger border-0 bg-transparent">
+          <i class="bi bi-box-arrow-right"></i>{{ user.username }}
+        </button>
+      </form>
     </div>
   </div>
 </nav>
@@ -1408,7 +1410,9 @@ td{vertical-align:middle!important;font-size:.85rem;}
     <span class="brand"><i class="bi bi-shield-lock me-2"></i>Tech<span>dialect</span> Admin</span>
     <div>
       <a href="{{ url_for('dashboard') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-arrow-left me-1"></i>Dashboard</a>
-      <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
+      <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
+        <button type="submit" class="btn btn-outline-danger btn-sm">Logout</button>
+      </form>
     </div>
   </div>
 </nav>
@@ -1757,7 +1761,7 @@ def register():
     <div class="text-center"><small class="text-muted">Have an account? <a href="/login">Sign in</a></small></div></form>"""
     return render_template_string(AUTH_HTML, page_title="Register", form_html=form_html)
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear(); flash("You have been logged out.","info"); return redirect(url_for("login"))
 
