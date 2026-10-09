@@ -40,7 +40,7 @@ def test_offline_worker_is_limited_to_public_stem():
     assert response.mimetype == "application/javascript"
     assert response.headers["Service-Worker-Allowed"] == "/learn/"
     script=response.data
-    assert b"techdialect-stem-v1" in script
+    assert stem_learning.SW_VERSION.encode() in script
     assert b"/learn/plant-food" in script
     assert b"req.method" in script
     assert b"url.pathname.startsWith" in script
