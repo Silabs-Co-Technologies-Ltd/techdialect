@@ -167,6 +167,8 @@ from publishing import publish_bp
 app.register_blueprint(publish_bp)
 from lesson_editor import lesson_editor_bp
 app.register_blueprint(lesson_editor_bp)
+from reviewer_roles import reviewers_bp
+app.register_blueprint(reviewers_bp)
 DB_BOOTSTRAPPED = False
 
 # =============================================================================
