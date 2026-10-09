@@ -79,6 +79,14 @@ small{color:#4f6873}.pill{font-size:.8rem;background:#edf4f6;border-radius:6px;p
 <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="decision" value="rejected">
 <button type="submit">Reject</button></form></div></article>
 {% else %}<article>No pending submissions.</article>{% endfor %}
+<h2>Approved, awaiting publication</h2>
+{% for item in approved %}
+<article><span class="pill">{{ item.language }}</span>
+<p><strong>{{ item.english_text }}</strong> → {{ item.local_text }}</p>
+<form method="post" action="{{ url_for('publishing.publish_term',submission_id=item.id) }}">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+<button type="submit">Publish reviewed term</button></form></article>
+{% else %}<article>No approved terms awaiting publication.</article>{% endfor %}
 {% else %}
 <article><h2>Submit a translation</h2>
 <form method="post" action="{{ url_for('data.submit') }}">
@@ -98,13 +106,21 @@ small{color:#4f6873}.pill{font-size:.8rem;background:#edf4f6;border-radius:6px;p
 @data_bp.get("/")
 def index():
     db, user = _current()
-    _init(db)
+    from publishing import _schema
+    _schema(db)
     _, _, lang_names = _services()
     is_admin = user["role"] == "admin"
     rows = db.execute(
         "SELECT * FROM language_submissions WHERE status='pending' ORDER BY created_at ASC LIMIT 100"
     ).fetchall() if is_admin else []
-    return render_template_string(PAGE, csrf=_csrf(), languages=sorted(lang_names()), rows=rows, is_admin=is_admin)
+    approved = db.execute(
+        """SELECT s.* FROM language_submissions s
+           LEFT JOIN published_terms p ON p.submission_id=s.id
+           WHERE s.status='approved' AND p.submission_id IS NULL
+           ORDER BY s.reviewed_at ASC LIMIT 100"""
+    ).fetchall() if is_admin else []
+    return render_template_string(PAGE, csrf=_csrf(), languages=sorted(lang_names()),
+                                  rows=rows, approved=approved, is_admin=is_admin)
 
 @data_bp.post("/submit")
 def submit():
