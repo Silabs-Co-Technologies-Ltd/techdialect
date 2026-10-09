@@ -15,6 +15,8 @@ LESSONS = [
     {"slug":"simple-circuits","title":"Making a light shine","subject":"Technology","level":"JSS 1","concept":"Electric circuit","explanation":"A simple circuit needs an energy source, conductors and a device such as a bulb. A complete circuit allows electric current to flow.","question":"What usually stops a bulb shining in a simple circuit?","options":["An open switch","A closed switch","A complete wire connection"],"answer":0},
 ]
 LESSON_BY_SLUG = {lesson["slug"]: lesson for lesson in LESSONS}
+from curriculum_catalog import PATHWAYS, PATHWAY_BY_SLUG, validate_pathways
+validate_pathways(LESSON_BY_SLUG)
 PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ page_title }} | TechDialect STEM</title>
@@ -32,7 +34,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 .progress-indicator{display:block;color:#285f49;font-weight:600}
 .reset-progress{border:1px solid #b4cad1;border-radius:8px;padding:8px 12px;background:#fff;margin:6px 0 16px}
 </style></head><body><main class="wrap">
-<header><strong>TechDialect STEM</strong><a href="/learn/">All lessons</a><small id="network-status" role="status" aria-live="polite"></small></header>
+<header><strong>TechDialect STEM</strong><nav><a href="/learn/">All lessons</a> · <a href="/learn/progress">Progress</a></nav><small id="network-status" role="status" aria-live="polite"></small></header>
 {% if lesson %}
 <article data-lesson-detail="{{ lesson.slug }}"><p class="tag">{{ lesson.subject }} · {{ lesson.level }}</p><h1>{{ lesson.title }}</h1>
 <h2>{{ lesson.concept }}</h2><p>{{ lesson.explanation }}</p>
@@ -72,8 +74,15 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 {% endfor %}
 <p role="status" aria-live="polite"></p></div></article>
 {% else %}
-<h1>Science and mathematics, made understandable</h1>
-<p class="muted">Explore the first editorial English STEM lessons. Reviewed Nigerian-language lessons are coming next.</p>
+<h1>Find your STEM learning pathway</h1>
+<p class="muted">Starter learning sequences for Primary 4, Primary 5 and JSS 1. These are pilot lessons, not an official curriculum certification.</p>
+<h2>Choose a class</h2>
+{% for path in pathways %}
+<article class="pathway"><p class="tag">{{ path.level }} · {{ path.lesson_slugs|length }} lessons</p>
+<h3><a href="{{ url_for('stem.path_detail', path_slug=path.slug) }}">{{ path.title }}</a></h3>
+<p>{{ path.description }}</p></article>
+{% endfor %}
+<h2>All starter lessons</h2>
 <p id="learning-progress" role="status" aria-live="polite"></p>
 <button type="button" id="clear-progress" class="reset-progress">Clear progress on this device</button>
 {% for item in lessons %}<article data-lesson="{{ item.slug }}"><p class="tag">{{ item.subject }} · {{ item.level }}</p>
@@ -163,7 +172,46 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 
 @stem_bp.get("/")
 def index():
-    return render_template_string(PAGE, page_title="Learn", lessons=LESSONS, lesson=None)
+    return render_template_string(PAGE, page_title="Learn", lessons=LESSONS, lesson=None,
+                                  pathways=PATHWAYS)
+
+PATH_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ pathway.title }} | TechDialect STEM</title>
+<style>
+body{margin:0;background:#f5f9fb;color:#183144;font-family:system-ui,sans-serif}
+main{max-width:820px;margin:0 auto;padding:24px}
+a{color:#006187}a:focus-visible{outline:3px solid #e5a14a;outline-offset:3px}
+article{padding:20px;margin:14px 0;border:1px solid #d7e4e9;border-radius:14px;background:white}
+h1{font-size:clamp(1.5rem,4vw,2.2rem)}.muted{color:#425e6e}
+.steps{display:grid;gap:12px}.progress-indicator{color:#2f6d48}
+</style></head><body><main>
+<p><a href="{{ url_for('stem.index') }}">← All learning pathways</a> ·
+<a href="{{ url_for('stem.progress_report') }}">Device progress</a></p>
+<p class="muted">{{ pathway.level }} · Starter learning pathway</p>
+<h1>{{ pathway.title }}</h1><p>{{ pathway.description }}</p>
+<p class="muted">Follow the lessons in order. Each activity has a quick understanding check.
+Successful practice is stored only on this device.</p>
+<section class="steps" aria-label="Ordered lessons">
+{% for lesson in lessons %}
+<article data-lesson="{{ lesson.slug }}">
+<p class="muted">Lesson {{ loop.index }} of {{ lessons|length }} · {{ lesson.subject }}</p>
+<h2><a href="{{ url_for('stem.lesson_detail', slug=lesson.slug) }}">{{ lesson.title }}</a></h2>
+<p>{{ lesson.concept }}</p>
+<small class="progress-indicator">Not practiced yet</small>
+</article>
+{% endfor %}
+</section>
+<script src="{{ url_for('stem.progress_script') }}" defer></script>
+</main></body></html>"""
+
+@stem_bp.get("/path/<path_slug>")
+def path_detail(path_slug):
+    pathway = PATHWAY_BY_SLUG.get(path_slug)
+    if pathway is None:
+        abort(404)
+    sequence = [LESSON_BY_SLUG[slug] for slug in pathway["lesson_slugs"]]
+    return render_template_string(PATH_PAGE, pathway=pathway, lessons=sequence)
 
 def published_lesson_edition(slug, language):
     from smart_translation_system import get_db
