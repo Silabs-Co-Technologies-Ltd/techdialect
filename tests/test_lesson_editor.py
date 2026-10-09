@@ -38,8 +38,15 @@ def test_unreviewed_edition_cannot_publish(editorial):
     init_reviewer_roles(db)
     db.execute("INSERT INTO stem_reviewer_roles(user_id,specialty,granted_by,granted_at) VALUES(2,'science',1,'2026-10-09')")
     db.execute("INSERT INTO stem_reviewer_roles(user_id,specialty,granted_by,granted_at) VALUES(3,'language',1,'2026-10-09')")
+    db.execute("INSERT INTO stem_reviewer_roles(user_id,specialty,granted_by,granted_at) VALUES(1,'science',1,'2026-10-09')")
+    db.execute("INSERT INTO stem_reviewer_roles(user_id,specialty,granted_by,granted_at) VALUES(2,'language',1,'2026-10-09')")
     db.commit()
+    # Even an assigned subject reviewer cannot approve their own lesson.
+    user["id"]=1
+    assert client.post("/studio/lessons/1/science",data={"csrf_token":"editor-token"}).status_code==403
+    user["id"]=2
     assert client.post("/studio/lessons/1/science",data={"csrf_token":"editor-token"}).status_code==302
+    # One person cannot perform both specialty reviews, even with both grants.
     assert client.post("/studio/lessons/1/language",data={"csrf_token":"editor-token"}).status_code==403
     user["id"]=3
     user["role"]="user"
