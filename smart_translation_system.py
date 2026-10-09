@@ -96,7 +96,11 @@ HF_MODEL_URL = "https://api-inference.huggingface.co/models/facebook/nllb-200-di
 SOURCE_LANG  = "eng_Latn"
 HF_MAX_RETRIES = 2
 
-DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "techdialect.db")
+DB_PATH        = os.path.abspath(os.getenv(
+    "DATABASE_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "techdialect.db")
+))
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
 NON_WORD_RE    = re.compile(r"[^\w\s]", re.UNICODE)
 MULTISPACE_RE  = re.compile(r"\s+")
@@ -157,6 +161,8 @@ app.secret_key = SECRET_KEY
 # STEM lessons are isolated from the legacy translation workflows.
 from stem_learning import stem_bp
 app.register_blueprint(stem_bp)
+from data_studio import data_bp
+app.register_blueprint(data_bp)
 DB_BOOTSTRAPPED = False
 
 # =============================================================================
