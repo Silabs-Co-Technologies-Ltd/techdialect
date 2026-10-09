@@ -11,6 +11,7 @@ def test_unique_lessons():
 def test_routes(monkeypatch):
     monkeypatch.setattr(stem_learning, 'available_languages', lambda: ['Tiv'])
     monkeypatch.setattr(stem_learning, 'reviewed_term', lambda concept, lang: None)
+    monkeypatch.setattr(stem_learning, 'published_lesson_edition', lambda slug, lang: None)
     app = Flask(__name__)
     app.register_blueprint(stem_bp)
     client = app.test_client()
@@ -23,6 +24,7 @@ def test_routes(monkeypatch):
 def test_language_selection_and_invalid_language(monkeypatch):
     monkeypatch.setattr(stem_learning, 'available_languages', lambda: ['Tiv'])
     monkeypatch.setattr(stem_learning, 'reviewed_term', lambda concept, lang: {'local_text':'Reviewed example','dialect':''} if lang=='Tiv' else None)
+    monkeypatch.setattr(stem_learning, 'published_lesson_edition', lambda slug, lang: None)
     app = Flask(__name__)
     app.register_blueprint(stem_learning.stem_bp)
     client = app.test_client()

@@ -82,6 +82,11 @@ document.getElementById("feedback").textContent=button.dataset.correct==="true"?
 def index():
     return render_template_string(PAGE, page_title="Learn", lessons=LESSONS, lesson=None)
 
+def published_lesson_edition(slug, language):
+    from smart_translation_system import get_db
+    from lesson_editor import published_edition
+    return published_edition(get_db(), slug, language)
+
 def available_languages():
     from smart_translation_system import db_lang_names
     return sorted(db_lang_names())
@@ -118,9 +123,7 @@ def lesson_detail(slug):
     edition_choices = []
     if selected:
         import json
-        from smart_translation_system import get_db
-        from lesson_editor import published_edition
-        edition = published_edition(get_db(), slug, selected)
+        edition = published_lesson_edition(slug, selected)
         if edition:
             edition_choices = json.loads(edition["options_json"])
     return render_template_string(PAGE, page_title=lesson["title"], lesson=lesson,
