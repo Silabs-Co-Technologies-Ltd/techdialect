@@ -232,7 +232,7 @@ def init_db():
         target_lang  TEXT    NOT NULL,
         category     TEXT    NOT NULL DEFAULT 'General',
         source       TEXT    NOT NULL DEFAULT 'manual',
-        quality_status TEXT  NOT NULL DEFAULT 'verified',
+        quality_status TEXT  NOT NULL DEFAULT 'pending_review',
         confidence   REAL,
         verified_by  INTEGER,
         verified_at  TEXT,
@@ -269,7 +269,7 @@ def init_db():
     # ── v6.2+ migrations: align older databases with new translation schema ──
     for sql in [
         "ALTER TABLE translations ADD COLUMN english_norm TEXT",
-        "ALTER TABLE translations ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'verified'",
+        "ALTER TABLE translations ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'pending_review'",
         "ALTER TABLE translations ADD COLUMN confidence REAL",
         "ALTER TABLE translations ADD COLUMN verified_by INTEGER",
         "ALTER TABLE translations ADD COLUMN verified_at TEXT",
@@ -354,7 +354,7 @@ def db_translations(lang=None, category=None, limit=None, added_by=None):
 def db_exact(english, lang):
     norm = normalize_english_text(english)
     return get_db().execute(
-        "SELECT * FROM translations WHERE english_norm=? AND target_lang=?",
+        "SELECT * FROM translations WHERE english_norm=? AND target_lang=? AND quality_status='verified' AND local_text!='[PENDING]'",
         (norm, lang)
     ).fetchone()
 
@@ -378,7 +378,7 @@ def db_insert(english, local, lang, category, source="manual", added_by=None, al
                 ).fetchone()
                 if existing and existing["local_text"] == "[PENDING]":
                     db.execute(
-                        "UPDATE translations SET local_text=?, category=?, source=?, quality_status='verified', added_by=?, created_at=? WHERE id=?",
+                        "UPDATE translations SET local_text=?, category=?, source=?, quality_status='pending_review', verified_by=NULL, verified_at=NULL, added_by=?, created_at=? WHERE id=?",
                         (local.strip(), category or "General", source, added_by, datetime.datetime.utcnow().isoformat(), exists["id"])
                     )
                     db.commit()
@@ -387,7 +387,7 @@ def db_insert(english, local, lang, category, source="manual", added_by=None, al
         db.execute(
             "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,quality_status,added_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (cleaned_english,english_norm,local.strip(),lang,category or "General",source,
-             "pending_review" if source in ("csv_seed", "csv_seed_admin") else "verified",
+             "pending_review",
              added_by, datetime.datetime.utcnow().isoformat())
         )
         db.commit()
@@ -413,8 +413,8 @@ def db_update_translation(tid, local, category, editor_id):
     if not can_edit:
         return False
     db.execute(
-        "UPDATE translations SET local_text=?, category=?, source='manual_edit', added_by=?, created_at=? WHERE id=?",
-        (local.strip(), category or "General", editor_id, datetime.datetime.utcnow().isoformat(), tid)
+        "UPDATE translations SET local_text=?, category=?, source='manual_edit', quality_status='pending_review', verified_by=NULL, verified_at=NULL, created_at=? WHERE id=?",
+        (local.strip(), category or "General", datetime.datetime.utcnow().isoformat(), tid)
     )
     db.commit()
     return row["target_lang"]
@@ -627,13 +627,13 @@ def db_fuzzy_candidates(english_norm, lang, limit=250):
     first_token = english_norm.split()[0] if english_norm else ""
     prefix = english_norm[:4]
     rows = db.execute(
-        "SELECT * FROM translations WHERE target_lang=? AND (english_norm LIKE ? OR english_norm LIKE ?) LIMIT ?",
+        "SELECT * FROM translations WHERE target_lang=? AND quality_status='verified' AND local_text!='[PENDING]' AND (english_norm LIKE ? OR english_norm LIKE ?) LIMIT ?",
         (lang, f"{first_token}%", f"{prefix}%", int(limit))
     ).fetchall()
     if rows:
         return rows
     return db.execute(
-        "SELECT * FROM translations WHERE target_lang=? ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM translations WHERE target_lang=? AND quality_status='verified' AND local_text!='[PENDING]' ORDER BY created_at DESC LIMIT ?",
         (lang, min(int(limit), 120))
     ).fetchall()
 
@@ -2285,7 +2285,7 @@ def add_route():
         flash("Both English and translation are required.","warning"); return redirect(url_for("dashboard"))
     if db_insert(english,local,lang,category,"manual",u["id"]):
         session["last_category"] = category; session["selected_lang"] = lang
-        flash(f'✅ Saved: "{english}" → "{local}"',"success")
+        flash(f'Submitted "{english}" → "{local}" for review before public use.',"success")
     else:
         flash(f'"{english}" already exists in {lang}.',"info")
     return redirect(url_for("dashboard", lang=lang))
@@ -2299,7 +2299,7 @@ def save_route():
     category = request.form.get("category","General").strip()
     u = current_user()
     if db_insert(english,local,lang,category,"ai",u["id"]):
-        flash(f'✅ Saved AI translation: "{english}"',"success")
+        flash(f'Saved AI suggestion for review: "{english}". It is not yet verified.',"success")
     else:
         flash(f'"{english}" already exists in {lang}.',"info")
     session["selected_lang"] = lang

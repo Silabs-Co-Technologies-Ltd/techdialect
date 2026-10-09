@@ -25,3 +25,10 @@ The learning page installs a service worker scoped only to `/learn/`. It pre-cac
 - A persistent, backed-up production database and migration procedure must be configured before deployment; ephemeral Vercel storage is not durable.
 - Ensure child-safe privacy defaults, accessibility reviews, educator signoff and dataset provenance checks.
 - Keep PR #11 in draft until these gates are closed.
+
+## Translation quality safeguards (October 2026)
+- Manual, CSV and AI contributions start as `pending_review`. Pending/rejected entries are never returned as database-verified exact or fuzzy translations.
+- The administrator may verify a submission. Editing any previously verified translation invalidates approval and restores `pending_review`.
+- Editing does not overwrite the original author's `added_by` attribution.
+- **Historical data warning:** earlier tracked SQLite datasets may have auto-assigned `verified` labels. These historical rows still need an explicit audit before relying on them for teaching or AI training. No claim is made that earlier approvals were trustworthy.
+- Live AI-generated translations, if returned by an external service, must be visually identified as AI suggestions rather than human-verified content.
