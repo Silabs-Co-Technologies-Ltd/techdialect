@@ -163,6 +163,8 @@ from stem_learning import stem_bp
 app.register_blueprint(stem_bp)
 from data_studio import data_bp
 app.register_blueprint(data_bp)
+from publishing import publish_bp
+app.register_blueprint(publish_bp)
 DB_BOOTSTRAPPED = False
 
 # =============================================================================
