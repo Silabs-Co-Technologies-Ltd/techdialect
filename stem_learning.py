@@ -42,9 +42,13 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 {% if edition %}
 <section class="card"><p class="tag">Human-reviewed {{ selected_lang }} lesson edition</p>
 <p>{{ edition.explanation }}</p><p><strong>Example:</strong> {{ edition.example_text }}</p>
+<div class="quiz" data-quiz aria-label="Local-language practice">
 <h3>{{ edition.question }}</h3>
-{% for choice in edition_choices %}<p>{{ loop.index }}. {{ choice }}</p>{% endfor %}
-<p class="muted">These choices are educational content; interactive local-language scoring will be introduced in a later stage.</p>
+{% for choice in edition_choices %}
+<button type="button" class="option" data-correct="{{ 'true' if loop.index0==0 else 'false' }}">{{ choice }}</button>
+{% endfor %}
+<p role="status" aria-live="polite"></p>
+</div>
 </section>
 {% endif %}
 {% if selected_lang %}
@@ -59,17 +63,12 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 {% endif %}
 {% endif %}
 <p class="note">English source lesson. Local-language editions will appear only after teacher and native-speaker review.</p>
+<div class="quiz" data-quiz aria-label="English practice">
 <h3>Check your understanding</h3><p>{{ lesson.question }}</p>
 {% for option in lesson.options %}
 <button type="button" class="option" data-correct="{{ 'true' if loop.index0 == lesson.answer else 'false' }}">{{ option }}</button>
 {% endfor %}
-<p id="feedback" role="status" aria-live="polite"></p></article>
-<script>
-document.querySelectorAll(".option").forEach(button=>button.addEventListener("click",()=>{
-document.querySelectorAll(".option").forEach(b=>{b.disabled=true;b.classList.add(b.dataset.correct==="true"?"correct":"incorrect")});
-document.getElementById("feedback").textContent=button.dataset.correct==="true"?"Correct! Well done.":"Not quite. The correct answer is highlighted.";
-}));
-</script>
+<p role="status" aria-live="polite"></p></div></article>
 {% else %}
 <h1>Science and mathematics, made understandable</h1>
 <p class="muted">Explore the first editorial English STEM lessons. Reviewed Nigerian-language lessons are coming next.</p>
@@ -79,6 +78,28 @@ document.getElementById("feedback").textContent=button.dataset.correct==="true"?
 {% endif %}
 <script>
 (function() {
+  document.querySelectorAll('[data-quiz]').forEach(function(quiz) {
+    const choices = Array.from(quiz.querySelectorAll('button.option'));
+    // Correct-answer positions should not be predictable from the source template.
+    for (let i = choices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = choices[i]; choices[i] = choices[j]; choices[j] = temp;
+    }
+    const status = quiz.querySelector('[role="status"]');
+    choices.forEach(function(button) {
+      quiz.insertBefore(button, status);
+      button.addEventListener('click', function() {
+        choices.forEach(function(item) {
+          item.disabled = true;
+          item.classList.toggle('correct', item.dataset.correct === 'true');
+          item.classList.toggle('incorrect', item === button && item.dataset.correct !== 'true');
+        });
+        status.textContent = button.dataset.correct === 'true'
+          ? 'Correct! Well done.'
+          : 'Not quite. The correct answer is highlighted.';
+      });
+    });
+  });
   const el = document.getElementById('network-status');
   function setConnection() {
     if(el) el.textContent = navigator.onLine ? 'Online' : 'Offline: saved lessons only';

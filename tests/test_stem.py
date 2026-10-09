@@ -44,3 +44,22 @@ def test_offline_worker_is_limited_to_public_stem():
     assert b"/learn/plant-food" in script
     assert b"req.method" in script
     assert b"url.pathname.startsWith" in script
+
+def test_published_local_lesson_has_independent_quiz(monkeypatch):
+    monkeypatch.setattr(stem_learning, "available_languages", lambda: ["Tiv"])
+    monkeypatch.setattr(stem_learning, "reviewed_term", lambda concept, lang: None)
+    fake = {
+        "explanation":"Reviewed lesson content",
+        "example_text":"Community illustration",
+        "question":"Localized practice question",
+        "options_json":'["Correct choice", "Other choice", "Another choice"]'
+    }
+    monkeypatch.setattr(stem_learning, "published_lesson_edition", lambda slug, lang: fake)
+    app=Flask(__name__)
+    app.register_blueprint(stem_learning.stem_bp)
+    page=app.test_client().get("/learn/plant-food?language=Tiv")
+    assert page.status_code==200
+    assert b"Localized practice question" in page.data
+    assert b"Local-language practice" in page.data
+    assert page.data.count(b'data-quiz') >= 2
+    assert b"Correct choice" in page.data
