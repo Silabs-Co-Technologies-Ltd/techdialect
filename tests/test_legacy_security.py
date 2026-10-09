@@ -56,7 +56,10 @@ def test_legacy_form_receives_token_and_rejects_forgery():
         db.close()
 
 
-def test_limits_and_rate_limit_headers():
+def test_limits_and_rate_limit_headers(monkeypatch):
+    # Pin the clock: a real minute rollover during CI would otherwise make
+    # a correct fixed-window limiter appear to exceed its permitted quota.
+    monkeypatch.setattr("legacy_security.time.time", lambda: 1865000037)
     app, db = app_and_connection()
     try:
         client = app.test_client()
