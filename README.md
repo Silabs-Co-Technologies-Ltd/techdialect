@@ -1,3 +1,5 @@
+> **TechDialect v7 foundation in progress.** A new STEM catalogue lives at `/learn/`. See [v7 architecture and release gates](docs/TECHDIALECT_V7.md). Do not deploy the foundation branch without setting `SECRET_KEY`, reviewing authentication/CSRF, and addressing the tracked historic database. The existing public README below describes the original translation application.
+
 # Techdialect Translation Engine
 
 **technologia omnibus** — Technology for all.
@@ -114,14 +116,14 @@ Every AI translation that gets saved becomes a training example for the next que
 
 ```bash
 # Clone the repo
-git clone https://github.com/Silabs/techdialect.git
+git clone https://github.com/Silabs-Co-Technologies-Ltd/techdialect.git
 cd techdialect
 
 # Install dependencies
 pip install flask python-dotenv requests werkzeug
 
 # Create .env file
-echo "SECRET_KEY=your-secret-key-here" > .env
+python -c "import secrets; print(secrets.token_hex(32))" # paste into .env as SECRET_KEY=...
 echo "HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx" >> .env
 echo "DAILY_GOAL=20" >> .env
 
@@ -131,8 +133,7 @@ python smart_translation_system.py
 
 Open [http://127.0.0.1:5000](http://127.0.0.1:5000)
 
-Default admin login: `Silabstechdialect` / `Techdialect@2024`  
-**Change the password immediately after first login.**
+There is no hardcoded administrator login in v7. Set `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (12+ characters), and `BOOTSTRAP_ADMIN_EMAIL` in your private environment to create the first administrator for an empty database. Remove bootstrap variables after successful setup.
 
 ### Getting a HuggingFace Token (free)
 1. Go to [huggingface.co](https://huggingface.co) and create a free account
@@ -161,7 +162,7 @@ import os
 
 sys.path.insert(0, '/home/<yourusername>')
 
-os.environ['SECRET_KEY'] = 'your-secret-key'
+os.environ['SECRET_KEY'] = 'use-a-privately-generated-long-secret'
 os.environ['HF_TOKEN']   = 'hf_xxxxxxxxxxxxxxxxxxxx'
 os.environ['DAILY_GOAL'] = '20'
 
