@@ -4,7 +4,7 @@ import hmac
 from flask import Blueprint, abort, jsonify, request, redirect, url_for, render_template_string, session
 from data_studio import _current, _require_csrf, _csrf
 from stem_learning import LESSON_BY_SLUG
-from reviewer_roles import has_specialty, init_reviewer_roles
+from reviewer_roles import has_specialty
 
 lesson_editor_bp = Blueprint("lesson_editor", __name__, url_prefix="/studio/lessons")
 
@@ -49,7 +49,8 @@ small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editor
 <form method="post" action="{{ url_for('lesson_editor.save') }}">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">
 <label for="slug">STEM lesson</label><select id="slug" name="lesson_slug">{% for x in lessons %}<option value="{{ x.slug }}">{{ x.title }}</option>{% endfor %}</select>
-<label for="lang">Language</label><input id="lang" name="language" maxlength="100" required>
+<label for="lang">Approved language</label><select id="lang" name="language" required>
+{% for lang in languages %}<option value="{{ lang }}">{{ lang }}</option>{% endfor %}</select>
 <label for="dialect">Dialect (optional)</label><input id="dialect" name="dialect" maxlength="100">
 <label for="explain">Reviewed explanation</label><textarea id="explain" name="explanation" maxlength="3000" required></textarea>
 <label for="example">Local example</label><textarea id="example" name="example_text" maxlength="1000" required></textarea>
@@ -72,6 +73,10 @@ small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editor
 {% endif %}</section>{% endfor %}
 </main></html>"""
 
+def available_editor_languages():
+    from smart_translation_system import db_lang_names
+    return sorted(db_lang_names())
+
 @lesson_editor_bp.get("/")
 def index():
     db, user = _current()
@@ -84,6 +89,7 @@ def index():
     rows=db.execute("SELECT * FROM stem_editions ORDER BY created_at DESC LIMIT 100").fetchall()
     return render_template_string(EDITOR, csrf=_csrf(), lessons=LESSON_BY_SLUG.values(),
                                   editions=rows, is_admin=is_admin, actor_id=user["id"],
+                                  languages=available_editor_languages() if is_admin else [],
                                   can_science=can_science, can_language=can_language)
 
 @lesson_editor_bp.post("/save")
@@ -101,7 +107,7 @@ def save():
     example=request.form.get("example_text","").strip()
     question=request.form.get("question","").strip()
     choices=[s.strip() for s in request.form.get("options","").splitlines() if s.strip()]
-    if slug not in LESSON_BY_SLUG or not language or not explanation or not example or not question or len(choices)!=3 or any([len(language)>100,len(dialect)>100,len(explanation)>3000,len(example)>1000,len(question)>500,any(len(x)>250 for x in choices)]):
+    if slug not in LESSON_BY_SLUG or language not in available_editor_languages() or not explanation or not example or not question or len(choices)!=3 or any([len(language)>100,len(dialect)>100,len(explanation)>3000,len(example)>1000,len(question)>500,any(len(x)>250 for x in choices)]):
         abort(400)
     # Published editions must not be silently overwritten. Drafts reset all reviews on changes.
     existing=db.execute("SELECT id,published_at FROM stem_editions WHERE lesson_slug=? AND language=? AND dialect=?",(slug,language,dialect)).fetchone()

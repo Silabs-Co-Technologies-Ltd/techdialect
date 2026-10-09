@@ -12,6 +12,7 @@ def editorial(monkeypatch):
     db.executemany("INSERT INTO users(id,username) VALUES(?,?)",[(1,'author'),(2,'science expert'),(3,'language expert')])
     user={"id":1,"role":"admin","approved":1}
     monkeypatch.setattr(lesson_editor,"_current",lambda:(db,user))
+    monkeypatch.setattr(lesson_editor, "available_editor_languages", lambda: ["Tiv", "Yoruba"])
     app=Flask(__name__)
     app.config.update(TESTING=True,SECRET_KEY="editor-test-secret")
     app.register_blueprint(lesson_editor.lesson_editor_bp)
@@ -54,3 +55,12 @@ def test_unauthorized_draft(editorial):
     user["role"]="user"
     assert client.get("/studio/lessons/").status_code==403
     assert client.post("/studio/lessons/save",data={}).status_code==403
+
+def test_unapproved_language_is_not_editable(editorial):
+    client, db, actor = editorial
+    response = client.post("/studio/lessons/save", data={
+        "csrf_token":"editor-token", "lesson_slug":"plant-food", "language":"Unknown",
+        "explanation":"Test", "example_text":"Example", "question":"Q?",
+        "options":"A\\nB\\nC"
+    })
+    assert response.status_code == 400
