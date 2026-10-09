@@ -79,7 +79,9 @@ load_dotenv()
 #  CONFIGURATION
 # =============================================================================
 
-SECRET_KEY           = os.getenv("SECRET_KEY", "techdialect-dev-key-change-in-prod")
+SECRET_KEY           = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY must be configured. See .env.example.")
 HF_TOKEN             = os.getenv("HF_TOKEN")
 DAILY_GOAL           = int(os.getenv("DAILY_GOAL", "20"))
 SIMILARITY_THRESHOLD = 0.55
@@ -99,8 +101,8 @@ SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
 NON_WORD_RE    = re.compile(r"[^\w\s]", re.UNICODE)
 MULTISPACE_RE  = re.compile(r"\s+")
 
-DEFAULT_ADMIN_USERNAME = "Silabstechdialect"
-DEFAULT_ADMIN_PASSWORD = "Techdialect@2024"
+DEFAULT_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "")
+DEFAULT_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 
 # ── Badge levels ──────────────────────────────────────────────────────────────
 BADGE_LEVELS = [
@@ -151,6 +153,10 @@ CATEGORIES = [
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+# STEM lessons are isolated from the legacy translation workflows.
+from stem_learning import stem_bp
+app.register_blueprint(stem_bp)
 DB_BOOTSTRAPPED = False
 
 # =============================================================================
@@ -285,10 +291,12 @@ def init_db():
     conn.commit()
 
     # Seed admin
-    if not conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone():
+    if (DEFAULT_ADMIN_USERNAME and DEFAULT_ADMIN_PASSWORD
+            and len(DEFAULT_ADMIN_PASSWORD) >= 12
+            and not conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()):
         conn.execute(
             "INSERT OR IGNORE INTO users (username,email,password_hash,role,approved,created_at) VALUES (?,?,?,'admin',1,?)",
-            (DEFAULT_ADMIN_USERNAME,"admin@techdialect.com",
+            (DEFAULT_ADMIN_USERNAME,os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost.invalid"),
              generate_password_hash(DEFAULT_ADMIN_PASSWORD),
              datetime.datetime.utcnow().isoformat())
         )
