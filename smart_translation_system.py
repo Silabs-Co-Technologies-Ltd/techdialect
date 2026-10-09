@@ -42,7 +42,7 @@
 #  ║                                                                          ║
 #  ║  .env file:  SECRET_KEY=x   HF_TOKEN=hf_xxx   DAILY_GOAL=20            ║
 #  ╠══════════════════════════════════════════════════════════════════════════╣
-#  ║  ADMIN: Silabstechdialect / Techdialect@2024  (change after first login)║
+#  ║  ADMIN: Set BOOTSTRAP_ADMIN_* securely (never use published defaults)  ║
 #  ╠══════════════════════════════════════════════════════════════════════════╣
 #  ║  BADGE CARDS:  /badge/<username>  (shareable, screenshottable)          ║
 #  ║  MESSAGES:     /contact  (users → admin)                                ║
@@ -2486,11 +2486,11 @@ if __name__ == "__main__":
     print("="*65)
     print(f"  DB     : {DB_PATH}")
     print(f"  AI     : {'✅ HuggingFace API active' if HF_TOKEN else '❌ No HF_TOKEN — DB-only mode'}")
-    print(f"  Admin  : {DEFAULT_ADMIN_USERNAME} / Techdialect@2024")
+    print("  Admin  : configured through private BOOTSTRAP_ADMIN_* variables")
     print(f"  URL    : http://127.0.0.1:5000")
     print(f"  Badge  : http://127.0.0.1:5000/badge/<username>")
     print(f"  Stop   : Ctrl+C")
     print("="*65 + "\n")
-    app.run(debug=True, host="127.0.0.1", port=5000, use_reloader=False)
+    app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1", host="127.0.0.1", port=5000, use_reloader=False)
 else:
     init_db()
