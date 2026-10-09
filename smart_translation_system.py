@@ -157,6 +157,9 @@ CATEGORIES = [
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+# CSRF guards for legacy forms, privacy headers and SQLite-backed request quotas.
+from legacy_security import install_legacy_security
+install_legacy_security(app, lambda: get_db())
 
 # STEM lessons are isolated from the legacy translation workflows.
 from stem_learning import stem_bp
@@ -1372,7 +1375,7 @@ function setProg(p){if(!artProg)return;artProg.classList.remove('d-none');artPro
 function translateArticle(){var text=artInput?artInput.value.trim():'',lang=artLang?artLang.value:selLang;if(!text){setStatus('Paste some text first.','danger');return;}
 if(artBtn){artBtn.disabled=true;artBtn.innerHTML='<i class="bi bi-hourglass-split me-2"></i>Translating…';}
 if(artOutput)artOutput.value='';if(chunkRes)chunkRes.innerHTML='';if(artWrap)artWrap.style.display='none';if(copyBtn)copyBtn.classList.add('d-none');if(dlBtn)dlBtn.classList.add('d-none');if(clearBtn)clearBtn.classList.remove('d-none');setProg(8);setStatus('Sending to AI…','primary');
-fetch('/translate_article',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,lang:lang})}).then(function(r){return r.json();}).then(function(d){
+fetch('/translate_article',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':(document.querySelector('meta[name="csrf-token"]')||{}).content||''},body:JSON.stringify({text:text,lang:lang})}).then(function(r){return r.json();}).then(function(d){
 if(d.status==='error'||d.status==='no_ai'){setProg(0);artProg.classList.add('d-none');setStatus(d.message||'Failed.','danger');if(artBtn){artBtn.disabled=false;artBtn.innerHTML='<i class="bi bi-arrow-right-circle me-2"></i>Translate Article';}return;}
 if(artOutput)artOutput.value=d.full_translation||'';setProg(100);setStatus('Done — '+d.total_chunks+' chunk'+(d.total_chunks!==1?'s':'')+' translated.','success');if(copyBtn)copyBtn.classList.remove('d-none');if(dlBtn)dlBtn.classList.remove('d-none');
 	if(chunkRes&&d.chunks&&d.chunks.length){if(chunkBadge)chunkBadge.textContent=d.chunks.length+' paragraphs';var html='';d.chunks.forEach(function(c){var b=c.source==='db'?'<span class="badge-db">DB</span>':'<span class="badge-ai">AI</span>';html+='<div class="chunk-row"><div class="row g-2"><div class="col-md-6 chunk-en">'+esc(c.english)+'</div><div class="col-md-6 chunk-tiv">'+b+' '+esc(c.local||'—')+'</div></div></div>';});chunkRes.innerHTML=html;artWrap.style.display='block';}
