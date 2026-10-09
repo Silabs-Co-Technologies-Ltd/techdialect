@@ -74,6 +74,10 @@ document.getElementById("feedback").textContent=button.dataset.correct==="true"?
 def index():
     return render_template_string(PAGE, page_title="Learn", lessons=LESSONS, lesson=None)
 
+def available_languages():
+    from smart_translation_system import db_lang_names
+    return sorted(db_lang_names())
+
 def reviewed_term(concept, language):
     """Only expose verified, explicitly published terms; never guess a translation."""
     if not language:
@@ -97,8 +101,7 @@ def lesson_detail(slug):
     lesson = LESSON_BY_SLUG.get(slug)
     if not lesson:
         abort(404)
-    from smart_translation_system import db_lang_names
-    languages = sorted(db_lang_names())
+    languages = available_languages()
     selected = request.args.get("language", "").strip()
     if selected and selected not in languages:
         abort(400)
