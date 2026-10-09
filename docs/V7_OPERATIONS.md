@@ -32,3 +32,11 @@ The learning page installs a service worker scoped only to `/learn/`. It pre-cac
 - Editing does not overwrite the original author's `added_by` attribution.
 - **Historical data warning:** earlier tracked SQLite datasets may have auto-assigned `verified` labels. These historical rows still need an explicit audit before relying on them for teaching or AI training. No claim is made that earlier approvals were trustworthy.
 - Live AI-generated translations, if returned by an external service, must be visually identified as AI suggestions rather than human-verified content.
+
+## Curriculum pathways and device-local progress
+- `/learn/`: starter class pathways for Primary 4, Primary 5 and JSS 1, plus direct links to the first five lessons.
+- `/learn/path/<path-slug>`: class-level learning sequence, ordered by planned learning progression.
+- `/learn/progress`: device-only lesson mastery counts and correct/attempts figures. Can export an anonymous CSV locally; export does not upload names or learning data.
+- Quiz attempts are measured locally, one short check per lesson, and do **not** replace teacher assessment.
+- `/learn/progress.js` and public pathway/report pages are cached for offline use under the STEM-only service worker scope.
+- Class levels are editorial **pilot groupings**, not an assertion of NERDC approval or full Nigerian national curriculum coverage.

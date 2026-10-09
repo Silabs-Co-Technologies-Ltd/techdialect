@@ -99,6 +99,19 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
       return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     } catch (e) { return {}; }
   }
+  // Number of practice attempts per lesson and language, stored locally.
+  const attemptsKey = 'techdialect-stem-attempts-v1';
+  function recordAttempt(slug, language, correct) {
+    try {
+      const stats = JSON.parse(localStorage.getItem(attemptsKey) || '{}');
+      const saved = stats && typeof stats === 'object' && !Array.isArray(stats) ? stats : {};
+      const key = slug + '|' + language;
+      const previous = saved[key] && typeof saved[key] === 'object' ? saved[key] : {};
+      saved[key] = {total: Math.max(0, Number(previous.total) || 0) + 1,
+                    correct: Math.max(0, Number(previous.correct) || 0) + (correct ? 1 : 0)};
+      localStorage.setItem(attemptsKey, JSON.stringify(saved));
+    } catch (e) {}
+  }
   function saveProgress(slug, language) {
     try {
       const saved = readProgress();
@@ -124,7 +137,10 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
   const resetButton = document.getElementById('clear-progress');
   if (resetButton) resetButton.addEventListener('click', function() {
     if (!window.confirm('Clear saved STEM progress on this device?')) return;
-    try { localStorage.removeItem(progressKey); } catch (e) {}
+    try {
+      localStorage.removeItem(progressKey);
+      localStorage.removeItem(attemptsKey);
+    } catch (e) {}
     refreshProgress();
   });
   refreshProgress();
@@ -147,9 +163,12 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
         status.textContent = button.dataset.correct === 'true'
           ? 'Correct! Well done.'
           : 'Not quite. The correct answer is highlighted.';
-        if (button.dataset.correct === 'true') {
-          const detail = document.querySelector('[data-lesson-detail]');
-          if (detail) saveProgress(detail.dataset.lessonDetail, quiz.dataset.language || 'English');
+        const detail = document.querySelector('[data-lesson-detail]');
+        if (detail) {
+          const language = quiz.dataset.language || 'English';
+          const correct = button.dataset.correct === 'true';
+          recordAttempt(detail.dataset.lessonDetail, language, correct);
+          if (correct) saveProgress(detail.dataset.lessonDetail, language);
         }
       });
     });
@@ -192,6 +211,7 @@ h1{font-size:clamp(1.5rem,4vw,2.2rem)}.muted{color:#425e6e}
 <h1>{{ pathway.title }}</h1><p>{{ pathway.description }}</p>
 <p class="muted">Follow the lessons in order. Each activity has a quick understanding check.
 Successful practice is stored only on this device.</p>
+<p id="pathway-progress" role="status" aria-live="polite"></p>
 <section class="steps" aria-label="Ordered lessons">
 {% for lesson in lessons %}
 <article data-lesson="{{ lesson.slug }}">
@@ -212,6 +232,60 @@ def path_detail(path_slug):
         abort(404)
     sequence = [LESSON_BY_SLUG[slug] for slug in pathway["lesson_slugs"]]
     return render_template_string(PATH_PAGE, pathway=pathway, lessons=sequence)
+
+REPORT_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Learning progress | TechDialect STEM</title>
+<style>
+body{font:16px system-ui,sans-serif;color:#193545;background:#f5f9fb;margin:0}
+main{max-width:940px;margin:0 auto;padding:24px}
+article{background:white;border:1px solid #d6e5e8;border-radius:14px;padding:20px;margin:16px 0}
+h1{font-size:clamp(1.6rem,4vw,2.3rem)}a{color:#00618b}
+a:focus-visible,button:focus-visible{outline:3px solid #d69938;outline-offset:3px}
+button{font:inherit;padding:12px;border:1px solid #c5d5d9;background:white;border-radius:10px;margin:3px}
+.primary{background:#00667f;color:white;border-color:#00667f}
+table{width:100%;border-collapse:collapse}td,th{padding:10px;text-align:left;border-bottom:1px solid #dfe7eb}
+.scroll{overflow-x:auto}.muted{color:#446372}caption{text-align:left;color:#446372;margin-bottom:10px}
+</style></head><body><main>
+<p><a href="{{ url_for('stem.index') }}">← Learning pathways</a></p>
+<h1>Learning progress on this device</h1>
+<p class="muted">A private, local snapshot of practice activity. No names, student IDs, or scores are transmitted to TechDialect.
+Use separate devices or browser profiles for different learners.</p>
+<article><h2>Progress summary</h2>
+<p id="report-summary" role="status" aria-live="polite">Reading saved local practice...</p>
+<button id="download-progress" type="button" class="primary">Export anonymous CSV report</button>
+<button id="reset-device-progress" type="button">Clear local progress</button>
+</article>
+{% for path in pathways %}
+<article><h2>{{ path.title }}</h2><div class="scroll"><table>
+<caption>{{ path.level }} · {{ path.lesson_slugs|length }} starter lessons</caption>
+<thead><tr><th scope="col">Subject and lesson</th><th scope="col">Practice status</th><th scope="col">Correct / attempts</th></tr></thead>
+<tbody>
+{% for slug in path.lesson_slugs %}
+{% set lesson = lesson_map[slug] %}
+<tr data-report-row data-slug="{{ slug }}" data-title="{{ lesson.title }}"
+  data-level="{{ lesson.level }}" data-subject="{{ lesson.subject }}">
+<td>{{ lesson.subject }} · <a href="{{ url_for('stem.lesson_detail', slug=slug) }}">{{ lesson.title }}</a></td>
+<td data-report-status>Not practiced</td><td data-report-score>0 / 0</td>
+</tr>
+{% endfor %}
+</tbody></table></div></article>
+{% endfor %}
+<p class="muted">These values count one question per completed practice attempt and should not be treated as an examination or verified school performance report.</p>
+<script src="{{ url_for('stem.progress_script') }}" defer></script>
+</main></body></html>"""
+
+@stem_bp.get("/progress")
+def progress_report():
+    return render_template_string(REPORT_PAGE, pathways=PATHWAYS, lesson_map=LESSON_BY_SLUG)
+
+PROGRESS_JS = "/* TechDialect learning progress is device-only. No cookies, accounts, or POST calls. */\n(function () {\n  \"use strict\";\n  const completedKey = \"techdialect-stem-progress-v1\";\n  const attemptsKey = \"techdialect-stem-attempts-v1\";\n  function read(key) {\n    try {\n      const value = JSON.parse(localStorage.getItem(key) || \"{}\");\n      return value && typeof value === \"object\" && !Array.isArray(value) ? value : {};\n    } catch (_) { return {}; }\n  }\n  function store(key, value) {\n    try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}\n  }\n  function summary(slug, completed, attempts) {\n    const rows = Object.keys(completed).filter(function (key) {\n      return key.startsWith(slug + \"|\") && completed[key] === true;\n    });\n    const stats = Object.entries(attempts).filter(function (entry) {\n      return entry[0].startsWith(slug + \"|\") && entry[1] &&\n        typeof entry[1] === \"object\";\n    });\n    const counts = stats.reduce(function (out, entry) {\n      out.total += Math.max(0, Number(entry[1].total) || 0);\n      out.correct += Math.max(0, Number(entry[1].correct) || 0);\n      return out;\n    }, {total: 0, correct: 0});\n    return {mastered: rows.length > 0, attempts: counts.total, correct: counts.correct};\n  }\n  function render() {\n    const completed = read(completedKey);\n    const attempts = read(attemptsKey);\n    let mastered = 0;\n    const cards = Array.from(document.querySelectorAll(\"[data-lesson]\"));\n    cards.forEach(function (card) {\n      const current = summary(card.dataset.lesson, completed, attempts);\n      if (current.mastered) mastered += 1;\n      const indicator = card.querySelector(\".progress-indicator\");\n      if (indicator) {\n        indicator.textContent = current.mastered\n          ? \"Practiced successfully ✓\"\n          : current.attempts ? \"Keep practicing · \" + current.attempts + \" attempts\"\n          : \"Not practiced yet\";\n      }\n    });\n    const pathStatus = document.getElementById(\"pathway-progress\");\n    if (pathStatus) {\n      pathStatus.textContent = mastered + \" of \" + cards.length +\n        \" lessons practiced successfully on this device\";\n    }\n    const reportRows = Array.from(document.querySelectorAll(\"[data-report-row]\"));\n    let reportMastered = 0, reportAttempts = 0, reportCorrect = 0;\n    reportRows.forEach(function (row) {\n      const result = summary(row.dataset.slug, completed, attempts);\n      if (result.mastered) reportMastered += 1;\n      reportAttempts += result.attempts;\n      reportCorrect += result.correct;\n      const cell = row.querySelector(\"[data-report-status]\");\n      if (cell) cell.textContent = result.mastered\n        ? \"Practiced successfully\"\n        : result.attempts ? \"Still practicing\" : \"Not practiced\";\n      const score = row.querySelector(\"[data-report-score]\");\n      if (score) score.textContent = result.correct + \" / \" + result.attempts;\n    });\n    const reportSummary = document.getElementById(\"report-summary\");\n    if (reportSummary) {\n      reportSummary.textContent = reportMastered + \" / \" + reportRows.length +\n        \" lessons practiced successfully. \" + reportCorrect + \" correct answers out of \" +\n        reportAttempts + \" local practice attempts.\";\n    }\n    return {completed: completed, attempts: attempts};\n  }\n  function csvValue(value) {\n    return '\"' + String(value == null ? \"\" : value).replace(/\"/g, '\"\"') + '\"';\n  }\n  const download = document.getElementById(\"download-progress\");\n  if (download) download.addEventListener(\"click\", function () {\n    const local = render();\n    const rows = [\n      [\"Class\", \"Subject\", \"Lesson\", \"Practiced successfully\", \"Correct answers\", \"Attempts\"]\n    ];\n    document.querySelectorAll(\"[data-report-row]\").forEach(function (row) {\n      const status = summary(row.dataset.slug, local.completed, local.attempts);\n      rows.push([\n        row.dataset.level, row.dataset.subject, row.dataset.title,\n        status.mastered ? \"Yes\" : \"No\", status.correct, status.attempts\n      ]);\n    });\n    const content = rows.map(function (row) {\n      return row.map(csvValue).join(\",\");\n    }).join(\"\\r\\n\");\n    const file = new Blob([\"\\uFEFF\", content], {type: \"text/csv;charset=utf-8\"});\n    const link = document.createElement(\"a\");\n    const url = URL.createObjectURL(file);\n    link.href = url;\n    link.download = \"techdialect-device-learning-report.csv\";\n    link.click();\n    URL.revokeObjectURL(url);\n  });\n  const clear = document.getElementById(\"reset-device-progress\");\n  if (clear) clear.addEventListener(\"click\", function () {\n    if (!window.confirm(\"Clear learning progress and assessment attempts from this device?\")) return;\n    try {\n      localStorage.removeItem(completedKey);\n      localStorage.removeItem(attemptsKey);\n    } catch (_) {}\n    render();\n  });\n  render();\n})();"
+
+@stem_bp.get("/progress.js")
+def progress_script():
+    response = Response(PROGRESS_JS, mimetype="application/javascript")
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
 
 def published_lesson_edition(slug, language):
     from smart_translation_system import get_db
@@ -263,10 +337,12 @@ def lesson_detail(slug):
 
 # Cache only public learning materials, not admin pages, credentials or private records.
 # Previously visited language editions are cached for offline revisiting.
-SW_VERSION = "techdialect-stem-v1"
-SW_JS = r"""const CACHE_NAME = "techdialect-stem-v1";
-const PRECACHE = ["/learn/", "/learn/plant-food", "/learn/fractions",
-                  "/learn/water-cycle", "/learn/computer-input", "/learn/simple-circuits"];
+SW_VERSION = "techdialect-stem-v2"
+SW_JS = r"""const CACHE_NAME = "techdialect-stem-v2";
+const PRECACHE = ["/learn/", "/learn/progress", "/learn/progress.js",
+                  "/learn/path/primary-4", "/learn/path/primary-5", "/learn/path/jss-1",
+                  "/learn/plant-food", "/learn/fractions", "/learn/water-cycle",
+                  "/learn/computer-input", "/learn/simple-circuits"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME)
     .then((cache) => cache.addAll(PRECACHE))

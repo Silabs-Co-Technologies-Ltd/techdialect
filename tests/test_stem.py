@@ -98,3 +98,22 @@ def test_pathway_catalog_and_routes():
         for lesson_slug in path["lesson_slugs"]:
             assert ('/learn/' + lesson_slug).encode() in response.data
     assert client.get('/learn/path/unknown').status_code == 404
+
+def test_private_progress_report_and_client_assets():
+    app=Flask(__name__)
+    app.register_blueprint(stem_learning.stem_bp)
+    client=app.test_client()
+    report=client.get('/learn/progress')
+    assert report.status_code == 200
+    assert b'Learning progress on this device' in report.data
+    assert b'anonymous CSV report' in report.data
+    assert report.data.count(b'data-report-row') == len(stem_learning.LESSONS)
+    js=client.get('/learn/progress.js')
+    assert js.status_code == 200
+    assert js.mimetype == 'application/javascript'
+    assert b'localStorage' in js.data
+    assert b'techdialect-stem-attempts-v1' in js.data
+    assert b'fetch(' not in js.data
+    sw=client.get('/learn/sw.js')
+    assert b'/learn/progress' in sw.data
+    assert b'/learn/path/primary-4' in sw.data
