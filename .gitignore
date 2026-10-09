@@ -9,6 +9,7 @@ venv/
 *.db
 *.db-shm
 *.db-wal
+instance/
 .coverage
 htmlcov/
 dist/
