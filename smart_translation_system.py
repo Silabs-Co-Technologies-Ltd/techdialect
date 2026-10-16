@@ -172,6 +172,9 @@ from lesson_editor import lesson_editor_bp
 app.register_blueprint(lesson_editor_bp)
 from reviewer_roles import reviewers_bp
 app.register_blueprint(reviewers_bp)
+from video_tutorials import videos_bp, video_admin_bp
+app.register_blueprint(videos_bp)
+app.register_blueprint(video_admin_bp)
 DB_BOOTSTRAPPED = False
 
 # =============================================================================
@@ -976,6 +979,17 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
         {% else %}{{ badge_emoji }}{% endif %}
         {{ badge_label }}
       </a>
+      <a href="{{ url_for('stem.index') }}" class="chip text-decoration-none text-success">
+        <i class="bi bi-book"></i>STEM Learn
+      </a>
+      <a href="{{ url_for('videos.index') }}" class="chip text-decoration-none text-primary">
+        <i class="bi bi-play-circle"></i>Video Tutorials
+      </a>
+      {% if user.role == 'admin' %}
+      <a href="{{ url_for('video_admin.dashboard') }}" class="chip text-decoration-none text-warning">
+        <i class="bi bi-camera-video"></i>Manage Videos
+      </a>
+      {% endif %}
       <a href="{{ url_for('propose_language') }}" class="chip text-decoration-none text-primary">
         <i class="bi bi-plus-circle"></i>Add Language
       </a>
@@ -1410,6 +1424,7 @@ td{vertical-align:middle!important;font-size:.85rem;}
     <span class="brand"><i class="bi bi-shield-lock me-2"></i>Tech<span>dialect</span> Admin</span>
     <div>
       <a href="{{ url_for('dashboard') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-arrow-left me-1"></i>Dashboard</a>
+      <a href="{{ url_for('video_admin.dashboard') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-camera-video me-1"></i>Manage Videos</a>
       <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
         <button type="submit" class="btn btn-outline-danger btn-sm">Logout</button>
       </form>

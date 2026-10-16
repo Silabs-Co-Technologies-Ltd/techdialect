@@ -33,8 +33,10 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 .note{border-left:4px solid #e5a14a;padding:10px 14px;background:#fffaec}
 .progress-indicator{display:block;color:#285f49;font-weight:600}
 .reset-progress{border:1px solid #b4cad1;border-radius:8px;padding:8px 12px;background:#fff;margin:6px 0 16px}
+.video-placeholder{padding:24px;border:0;background:#18394c;color:white;border-radius:12px;cursor:pointer;min-height:140px;width:100%;font:inherit}
+[data-video-player] iframe{aspect-ratio:16/9;width:100%;border:0;border-radius:12px}
 </style></head><body><main class="wrap">
-<header><strong>TechDialect STEM</strong><nav><a href="/learn/">All lessons</a> · <a href="/learn/progress">Progress</a></nav><small id="network-status" role="status" aria-live="polite"></small></header>
+<header><strong>TechDialect STEM</strong><nav><a href="/learn/">All lessons</a> · <a href="/learn/progress">Progress</a> · <a href="{{ url_for('videos.index') }}">Video Tutorials</a></nav><small id="network-status" role="status" aria-live="polite"></small></header>
 {% if lesson %}
 <article data-lesson-detail="{{ lesson.slug }}"><p class="tag">{{ lesson.subject }} · {{ lesson.level }}</p><h1>{{ lesson.title }}</h1>
 <h2>{{ lesson.concept }}</h2><p>{{ lesson.explanation }}</p>
@@ -72,7 +74,22 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 {% for option in lesson.options %}
 <button type="button" class="option" data-correct="{{ 'true' if loop.index0 == lesson.answer else 'false' }}">{{ option }}</button>
 {% endfor %}
-<p role="status" aria-live="polite"></p></div></article>
+<p role="status" aria-live="polite"></p></div>
+{% if tutorials %}
+<section aria-label="Related video tutorials"><h2>Watch a related tutorial</h2>
+{% for tutorial in tutorials %}
+<div class="card"><h3>{{ tutorial.title }}</h3><p class="muted">{{ tutorial.language }}</p>
+{% if tutorial.description %}<p>{{ tutorial.description }}</p>{% endif %}
+<div data-video-player>
+<button type="button" class="video-placeholder" data-youtube-id="{{ tutorial.video_id }}"
+ aria-label="Load YouTube video: {{ tutorial.title }}">▶ Play YouTube tutorial</button>
+</div><p class="muted">Video is loaded only when you select Play. Internet is required.</p>
+<a href="https://www.youtube.com/watch?v={{ tutorial.video_id }}"
+ target="_blank" rel="noopener noreferrer">Open on YouTube</a></div>
+{% endfor %}</section>
+{% else %}<p class="muted">No YouTube tutorials have been published for this lesson yet.
+<a href="{{ url_for('videos.index') }}">Browse the video library</a>.</p>{% endif %}
+</article>
 {% else %}
 <h1>Find your STEM learning pathway</h1>
 <p class="muted">Starter learning sequences for Primary 4, Primary 5 and JSS 1. These are pilot lessons, not an official curriculum certification.</p>
@@ -89,6 +106,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 <h2><a href="{{ url_for('stem.lesson_detail',slug=item.slug) }}">{{ item.title }}</a></h2>
 <p>{{ item.concept }}</p><small class="progress-indicator">Not practiced yet</small></article>{% endfor %}
 {% endif %}
+<script src="{{ url_for('videos.embed_script') }}" defer></script>
 <script>
 (function() {
   // Only the device stores progress. No names, accounts or learner details are sent.
@@ -206,7 +224,8 @@ h1{font-size:clamp(1.5rem,4vw,2.2rem)}.muted{color:#425e6e}
 .steps{display:grid;gap:12px}.progress-indicator{color:#2f6d48}
 </style></head><body><main>
 <p><a href="{{ url_for('stem.index') }}">← All learning pathways</a> ·
-<a href="{{ url_for('stem.progress_report') }}">Device progress</a></p>
+<a href="{{ url_for('stem.progress_report') }}">Device progress</a> ·
+<a href="{{ url_for('videos.index') }}">Video Tutorials</a></p>
 <p class="muted">{{ pathway.level }} · Starter learning pathway</p>
 <h1>{{ pathway.title }}</h1><p>{{ pathway.description }}</p>
 <p class="muted">Follow the lessons in order. Each activity has a quick understanding check.
@@ -331,9 +350,12 @@ def lesson_detail(slug):
         edition = published_lesson_edition(slug, selected)
         if edition:
             edition_choices = json.loads(edition["options_json"])
+    from video_tutorials import published_for_lesson
+    tutorials = published_for_lesson(slug)
     return render_template_string(PAGE, page_title=lesson["title"], lesson=lesson,
                                   languages=languages, selected_lang=selected, term=term,
-                                  edition=edition, edition_choices=edition_choices)
+                                  edition=edition, edition_choices=edition_choices,
+                                  tutorials=tutorials)
 
 # Cache only public learning materials, not admin pages, credentials or private records.
 # Previously visited language editions are cached for offline revisiting.

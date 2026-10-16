@@ -40,3 +40,13 @@ The learning page installs a service worker scoped only to `/learn/`. It pre-cac
 - Quiz attempts are measured locally, one short check per lesson, and do **not** replace teacher assessment.
 - `/learn/progress.js` and public pathway/report pages are cached for offline use under the STEM-only service worker scope.
 - Class levels are editorial **pilot groupings**, not an assertion of NERDC approval or full Nigerian national curriculum coverage.
+
+## Video tutorials: YouTube publishing workflow
+- The public library is `/videos/`; the admin dashboard is `/admin/videos/`, linked from both the TechDialect dashboard and the legacy admin page.
+- Upload tutorial files **to your own YouTube account first**. TechDialect saves only the URL's validated video ID, title, description, language, optional linked STEM lesson, and visibility.
+- Paste an HTTPS `youtube.com/watch?v=...`, `youtube.com/shorts/...`, `youtube.com/live/...`, `youtube.com/embed/...` or `youtu.be/...` URL. Unknown hosts, HTTP links, iframe markup and malformed IDs are rejected.
+- New tutorials begin as **drafts** and are visible only to administrators. Publish them explicitly to list them in the public video library or alongside their selected lesson. Unpublish to remove them immediately; editing resets them to draft.
+- Learners select **Play** before the browser creates an iframe on `youtube-nocookie.com`. Loading that third-party player still sends information to YouTube, so learners should be informed. YouTube streams are **not** saved offline.
+- A tutorial should be set to Public or Unlisted on YouTube and embedding must be allowed. Private or restricted videos cannot be played by visitors.
+- For young learners, administrators should use age-appropriate content, review subtitles and descriptions, and avoid relying on YouTube autoplay or collecting viewing analytics.
+- Persistent production storage is still necessary: SQLite on ephemeral Vercel storage will lose edits. This v7 draft is not yet production-approved.
