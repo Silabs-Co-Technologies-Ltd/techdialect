@@ -74,3 +74,47 @@ def test_application_import_on_vercel_without_storage_fails(tmp_path):
     assert p.returncode!=0
     assert "Vercel deployments require persistent" in p.stderr
     assert not (tmp_path/"must-not-be-created.db").exists()
+
+
+
+def test_migration_and_preflight_on_fresh_local_database(tmp_path):
+    env=os.environ.copy()
+    env["SECRET_KEY"]="integration-local-only-not-for-production"
+    env["DATABASE_PATH"]=str(tmp_path/"installation.db")
+    for key in ("VERCEL","VERCEL_ENV","TURSO_DATABASE_URL","TURSO_AUTH_TOKEN"):
+        env.pop(key,None)
+    migrate=subprocess.run(
+        [sys.executable,"scripts/migrate.py","--apply"],
+        env=env,text=True,capture_output=True,timeout=35
+    )
+    assert migrate.returncode==0, migrate.stderr[-4000:]
+    assert "Schema installed and verified" in migrate.stdout
+    preflight=subprocess.run(
+        [sys.executable,"scripts/release_preflight.py"],
+        env=env,text=True,capture_output=True,timeout=35
+    )
+    assert preflight.returncode==0, preflight.stderr[-4000:]
+    assert "PASS" in preflight.stdout
+
+
+def test_vercel_import_with_remote_config_does_not_initialize_sqlite(tmp_path):
+    env=os.environ.copy()
+    env["VERCEL"]="1"
+    env["SECRET_KEY"]="strong-remote-staging-example-secret-"+"x"*32
+    env["TURSO_DATABASE_URL"]="libsql://fake.turso.io"
+    env["TURSO_AUTH_TOKEN"]="test-only-not-real"
+    env["DATABASE_PATH"]=str(tmp_path/"should-not-exist.db")
+    program = """
+import sqlite3,sys,types
+sys.modules['turso_serverless']=types.SimpleNamespace(
+    connect=lambda url,auth_token: sqlite3.connect(':memory:'))
+from app import app
+with app.test_client() as client:
+    result=client.get('/')
+    assert result.status_code == 200, result.data[:400]
+    assert b'TechDialect' in result.data
+"""
+    run=subprocess.run([sys.executable,"-c",program],env=env,
+        text=True,capture_output=True,timeout=25)
+    assert run.returncode==0,run.stderr[-4000:]
+    assert not (tmp_path/"should-not-exist.db").exists()
