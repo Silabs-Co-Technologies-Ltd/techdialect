@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m compileall -q smart_translation_system.py stem_learning.py data_studio.py publishing.py lesson_editor.py reviewer_roles.py curriculum_catalog.py adult_catalog.py video_tutorials.py landing_page.py db_runtime.py
       - run: python -m pytest -q
