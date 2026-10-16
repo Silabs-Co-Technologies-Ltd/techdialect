@@ -17,10 +17,10 @@
 7. Editorial versions are currently immutable after publication; corrections require a versioned successor in the upcoming schema upgrade.
 
 ## Offline learning behavior
-The learning page installs a service worker scoped only to `/learn/`. It pre-caches the five English starter lessons. Previously visited published local-language lesson pages are cached when accessed online. Other application routes and private administrator pages are **not** cached. This is an MVP offline experience, not full device synchronization or offline contribution uploads.
+The learning page installs a service worker scoped only to `/learn/`. It pre-caches the 20 school and 12 adult English starter lessons. Previously visited published local-language lesson pages are cached when accessed online. Other application routes and private administrator pages are **not** cached. This is an MVP offline experience, not full device synchronization or offline contribution uploads.
 
 ## Release blockers
-- Legacy translation form CSRF and public AI endpoint rate limits need a separate security pass.
+- Legacy form CSRF and key API rate limits were implemented; verify them with live serverless traffic during the pre-deployment security assessment.
 - The original SQLite database may still exist in earlier Git history. Removing the file from the working branch does not erase history.
 - A persistent, backed-up production database and migration procedure must be configured before deployment; ephemeral Vercel storage is not durable.
 - Ensure child-safe privacy defaults, accessibility reviews, educator signoff and dataset provenance checks.

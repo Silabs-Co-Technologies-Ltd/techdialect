@@ -16,6 +16,12 @@ with app.test_client() as client:
     assert home.status_code == 200
     assert b'Technology makes sense in every language' in home.data
     assert b'Adult Education' in home.data
+    assert b'name="description"' in home.data
+    assert b'<meta property="og:title"' in home.data
+    assert b'aria-label="Main navigation"' in home.data
+    assert b'@media(max-width:680px)' in home.data
+    assert b'http://fonts.googleapis.com' not in home.data
+
     assert b'/learn/adults' in home.data
     assert b'20' in home.data and b'12' in home.data
     assert client.get('/dashboard').status_code == 302

@@ -118,3 +118,17 @@ with app.test_client() as client:
         text=True,capture_output=True,timeout=25)
     assert run.returncode==0,run.stderr[-4000:]
     assert not (tmp_path/"should-not-exist.db").exists()
+
+
+def test_production_rejects_short_secret_without_db_access(tmp_path):
+    env=os.environ.copy()
+    env["VERCEL"]="1"
+    env["SECRET_KEY"]="weak-secret"
+    env["TURSO_DATABASE_URL"]="libsql://fake.turso.io"
+    env["TURSO_AUTH_TOKEN"]="private-placeholder"
+    env["DATABASE_PATH"]=str(tmp_path/"do-not-create.db")
+    p=subprocess.run([sys.executable,"-c","import app"],env=env,
+        text=True,capture_output=True,timeout=15)
+    assert p.returncode!=0
+    assert "strong, random SECRET_KEY" in p.stderr
+    assert not (tmp_path/"do-not-create.db").exists()
