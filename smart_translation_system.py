@@ -52,6 +52,7 @@
 import os, csv, io, sqlite3, difflib, datetime, textwrap, re, hashlib, base64
 import time
 from functools import wraps
+from db_runtime import connect as connect_database, uses_remote_database, validate_database_configuration
 
 from flask import (
     Flask, request, render_template_string, redirect, url_for,
@@ -100,7 +101,10 @@ DB_PATH        = os.path.abspath(os.getenv(
     "DATABASE_PATH",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "techdialect.db")
 ))
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+# Fail early on serverless if no remote persistent database is configured.
+validate_database_configuration()
+if not uses_remote_database():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
 NON_WORD_RE    = re.compile(r"[^\w\s]", re.UNICODE)
 MULTISPACE_RE  = re.compile(r"\s+")
@@ -157,6 +161,17 @@ CATEGORIES = [
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_SECURE=bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV")
+                               or os.getenv("COOKIE_SECURE") == "1"),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    MAX_CONTENT_LENGTH=3 * 1024 * 1024,
+)
+if os.getenv("TRUSTED_HOSTS"):
+    app.config["TRUSTED_HOSTS"] = [
+        name.strip() for name in os.environ["TRUSTED_HOSTS"].split(",") if name.strip()
+    ]
 # CSRF guards for legacy forms, privacy headers and SQLite-backed request quotas.
 from legacy_security import install_legacy_security
 install_legacy_security(app, lambda: get_db())
@@ -177,7 +192,7 @@ app.register_blueprint(landing_bp)
 from video_tutorials import videos_bp, video_admin_bp
 app.register_blueprint(videos_bp)
 app.register_blueprint(video_admin_bp)
-DB_BOOTSTRAPPED = False
+DB_BOOTSTRAPPED = uses_remote_database()
 
 # =============================================================================
 #  DATABASE
@@ -193,9 +208,9 @@ def get_db():
             # Keep error visible in logs but allow request cycle to raise naturally.
             print(f"[DB bootstrap error] {exc}")
     if "db" not in g:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = connect_database(DB_PATH)
+        if not uses_remote_database():
+            conn.execute("PRAGMA journal_mode=WAL")
         g.db = conn
     return g.db
 
@@ -205,8 +220,7 @@ def close_db(exc=None):
     if db: db.close()
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = connect_database(DB_PATH)
     c = conn.cursor()
 
     c.execute("""CREATE TABLE IF NOT EXISTS users (
@@ -327,6 +341,12 @@ def init_db():
                         ("Hausa","hau_Arab"),("Igbo","ibo_Latn"),("Nigerian Pidgin","pcm_Latn")]:
         c.execute("INSERT OR IGNORE INTO languages (name,nllb_code,added_by,approved,created_at) VALUES (?,?,NULL,1,?)",
                   (name, code, datetime.datetime.utcnow().isoformat()))
+    conn.execute("""CREATE TABLE IF NOT EXISTS request_quotas (
+        identity TEXT NOT NULL,
+        window_number INTEGER NOT NULL,
+        hits INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(identity, window_number)
+    )""")
     conn.commit()
     conn.close()
 
@@ -2520,4 +2540,7 @@ if __name__ == "__main__":
     print("="*65 + "\n")
     app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1", host="127.0.0.1", port=5000, use_reloader=False)
 else:
-    init_db()
+    # Production serverless functions are immutable and should never try to
+    # migrate shared storage at cold start. Run the explicit migration command.
+    if not uses_remote_database():
+        init_db()

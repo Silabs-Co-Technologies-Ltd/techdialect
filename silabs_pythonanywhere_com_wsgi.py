@@ -8,7 +8,7 @@ sys.path.insert(0, '/home/Silabs')
 
 # ── ENVIRONMENT DEFAULTS ──────────────────────────────────────────────────────
 # Ensuring production-ready defaults if not set in the environment
-os.environ.setdefault('SECRET_KEY', 'techdialect-production-key-2024-secure')
+# Set SECRET_KEY in the hosting dashboard; no unsafe fallback secret.
 os.environ.setdefault('DAILY_GOAL', '20')
 
 # ── LOGGING ──────────────────────────────────────────────────────────────────
