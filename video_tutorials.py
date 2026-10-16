@@ -300,6 +300,9 @@ def edit(tutorial_id):
     _require_csrf()
     video, title, description, language, slug = _fields()
     db = _db()
+    existing = db.execute("SELECT id FROM video_tutorials WHERE id=?", (tutorial_id,)).fetchone()
+    if not existing:
+        abort(404)
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     duplicate = db.execute("SELECT id FROM video_tutorials WHERE video_id=? AND id!=?",
                            (video,tutorial_id)).fetchone()
