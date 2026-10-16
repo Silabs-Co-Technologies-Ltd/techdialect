@@ -1,0 +1,263 @@
+"""Editorial bilingual STEM lesson editions with two independent human reviews."""
+import datetime
+import hmac
+from urllib.parse import urlsplit
+from flask import Blueprint, abort, jsonify, request, redirect, url_for, render_template_string, session
+from data_studio import _current, _require_csrf, _csrf
+from stem_learning import LESSON_BY_SLUG
+from reviewer_roles import has_specialty
+
+lesson_editor_bp = Blueprint("lesson_editor", __name__, url_prefix="/studio/lessons")
+
+def validate_audio_url(url):
+    """Only explicitly approved media hosts and HTTPS audio formats."""
+    if not url:
+        return ""
+    if len(url) > 500:
+        return None
+    try:
+        parsed = urlsplit(url)
+        hostname = (parsed.hostname or "").lower()
+        approved = hostname == "res.cloudinary.com" or hostname.endswith(
+            ".public.blob.vercel-storage.com")
+        if (parsed.scheme != "https" or not approved or parsed.username or
+                parsed.password or parsed.port is not None or parsed.fragment or
+                not parsed.path.lower().endswith((".mp3", ".m4a", ".ogg", ".wav"))):
+            return None
+        return url
+    except (ValueError, TypeError):
+        return None
+
+
+def _init(db):
+    db.execute("""CREATE TABLE IF NOT EXISTS stem_editions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lesson_slug TEXT NOT NULL,
+        language TEXT NOT NULL,
+        dialect TEXT NOT NULL DEFAULT '',
+        explanation TEXT NOT NULL,
+        example_text TEXT NOT NULL,
+        question TEXT NOT NULL,
+        options_json TEXT NOT NULL,
+        steps_json TEXT NOT NULL DEFAULT '[]',
+        task_text TEXT NOT NULL DEFAULT '',
+        audio_url TEXT NOT NULL DEFAULT '',
+        created_by INTEGER NOT NULL,
+        science_reviewed_by INTEGER,
+        language_reviewed_by INTEGER,
+        published_by INTEGER,
+        published_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (created_by) REFERENCES users(id),
+        UNIQUE(lesson_slug, language, dialect)
+    )""")
+    # Upgrade existing SQLite installations without clearing reviewed editions.
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(stem_editions)").fetchall()}
+    if "steps_json" not in columns:
+        db.execute("ALTER TABLE stem_editions ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]'")
+    if "task_text" not in columns:
+        db.execute("ALTER TABLE stem_editions ADD COLUMN task_text TEXT NOT NULL DEFAULT ''")
+    if "audio_url" not in columns:
+        db.execute("ALTER TABLE stem_editions ADD COLUMN audio_url TEXT NOT NULL DEFAULT ''")
+    db.commit()
+
+def published_edition(db, slug, language):
+    _init(db)
+    return db.execute("""SELECT * FROM stem_editions
+        WHERE lesson_slug=? AND language=? AND published_at IS NOT NULL
+        AND science_reviewed_by IS NOT NULL AND language_reviewed_by IS NOT NULL
+        ORDER BY CASE WHEN dialect='' THEN 0 ELSE 1 END, id DESC LIMIT 1""",
+        (slug, language)).fetchone()
+
+EDITOR = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STEM Editorial Studio</title><style>body{font:16px system-ui;background:#f5f9fb;color:#123;margin:0}
+main{max-width:850px;margin:2rem auto;padding:1rem}section{background:white;border:1px solid #cbdbe4;padding:1.5rem;margin:1rem 0;border-radius:14px}
+label{display:block;margin:.8rem 0 .2rem;font-weight:600}input,textarea,select{box-sizing:border-box;width:100%;padding:.7rem;font:inherit}
+button{padding:.7rem 1rem;background:#005b7b;color:white;border:0;border-radius:8px;margin:.4rem}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid orange}
+small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editorial Studio</h1>
+<p>Technical accuracy and language reviews must be completed by different assigned specialists before publication. Adult technology lessons must also include reviewed practical steps.</p>
+{% if is_admin %}<p><a href="{{ url_for('reviewers.index') }}">Manage reviewers</a></p>{% endif %}
+<section><h2>{{ 'Edit your lesson draft' if edit_draft else 'Contribute a local-language lesson draft' }}</h2>
+<p>Approved contributors can draft an edition. Only the original author may edit it before publication.
+Every draft requires two independent reviewers and final administrator publication.</p>
+<form method="post" action="{{ url_for('lesson_editor.save') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+<label for="slug">STEM lesson</label><select id="slug" name="lesson_slug">
+{% for x in lessons %}<option value="{{ x.slug }}" {% if edit_draft and edit_draft.lesson_slug==x.slug %}selected{% endif %}>{{ x.level }} · {{ x.title }}</option>{% endfor %}</select>
+<details open><summary>English source lesson (translate, do not copy blindly)</summary>
+<h3 id="source-title"></h3><p id="source-explanation"></p>
+<h4>Original step-by-step guidance</h4><ol id="source-steps"></ol>
+<h4>Original practice activity</h4><p id="source-task"></p>
+<h4>Original question</h4><p id="source-question"></p>
+</details>
+<label for="lang">Approved language</label><select id="lang" name="language" required>
+{% for lang in languages %}<option value="{{ lang }}" {% if edit_draft and edit_draft.language==lang %}selected{% endif %}>{{ lang }}</option>{% endfor %}</select>
+<label for="dialect">Dialect (optional)</label><input id="dialect" name="dialect" maxlength="100" value="{{ edit_draft.dialect if edit_draft else '' }}">
+<label for="explain">Explanation in the selected language</label><textarea id="explain" name="explanation" maxlength="3000" required>{{ edit_draft.explanation if edit_draft else '' }}</textarea>
+<label for="example">Local example</label><textarea id="example" name="example_text" maxlength="1000" required>{{ edit_draft.example_text if edit_draft else '' }}</textarea>
+<label for="question">Quiz question in the selected language</label><textarea id="question" name="question" maxlength="500" required>{{ edit_draft.question if edit_draft else '' }}</textarea>
+<label for="steps">Reviewed practical steps (one per line, required for adult lessons)</label>
+<textarea id="steps" name="steps_text" maxlength="2000" rows="4" placeholder="Describe each step in the selected language">{{ prefill_steps }}</textarea>
+<label for="task">Reviewed practice activity (required for adult lessons)</label>
+<textarea id="task" name="task_text" maxlength="600" rows="2">{{ edit_draft.task_text if edit_draft else '' }}</textarea>
+<label for="narration">Optional recorded local-language audio URL</label>
+<input id="narration" type="url" name="audio_url" maxlength="500"
+placeholder="https://res.cloudinary.com/.../recording.mp3" value="{{ edit_draft.audio_url if edit_draft else '' }}">
+<p><small>Audio is linked, not uploaded here. Use an authorized recording hosted on Cloudinary or public Vercel Blob.
+The audio URL is not exposed to learners until independent reviews and publication.</small></p>
+<label for="options">Three answer choices, one per line (first one must be correct)</label><textarea id="options" name="options" maxlength="1000" required>{{ prefill_options }}</textarea>
+<button>{{ 'Update my draft (resets reviews)' if edit_draft else 'Submit draft for review' }}</button></form>
+<script type="application/json" id="source-lessons">{{ source_lessons|tojson }}</script>
+<script>
+(function(){
+  const lessonSelect=document.getElementById('slug');
+  const data=JSON.parse(document.getElementById('source-lessons').textContent);
+  const title=document.getElementById('source-title');
+  const explanation=document.getElementById('source-explanation');
+  const steps=document.getElementById('source-steps');
+  const task=document.getElementById('source-task');
+  const question=document.getElementById('source-question');
+  function update(){
+    const current=data[lessonSelect.value];
+    if(!current)return;
+    title.textContent=current.title || '';
+    explanation.textContent=current.explanation || '';
+    task.textContent=current.task || 'Use the source lesson example.';
+    question.textContent=current.question || '';
+    steps.replaceChildren();
+    (current.steps || []).forEach(function(line){
+      const li=document.createElement('li');li.textContent=line;steps.appendChild(li);
+    });
+  }
+  lessonSelect.addEventListener('change',update);
+  update();
+})();
+</script></section>
+{% for x in editions %}<section><h2>{{ x.lesson_slug }} · {{ x.language }}</h2>
+<p>{{ x.explanation }}</p>
+{% if x.steps_json and x.steps_json != '[]' %}<h3>Practical steps for review</h3><p>{{ x.steps_json }}</p>{% endif %}
+{% if x.task_text %}<h3>Practice activity</h3><p>{{ x.task_text }}</p>{% endif %}
+{% if x.audio_url %}<p>Recorded narration URL: <a href="{{ x.audio_url }}" target="_blank" rel="noopener noreferrer">Listen for editorial review</a></p>{% endif %}
+<h3>Quiz</h3><p>{{ x.question }} · {{ x.options_json }}</p>
+{% if not x.published_at and x.created_by==actor_id %}
+<p><a href="{{ url_for('lesson_editor.index',edit=x.id) }}">Edit my draft</a></p>{% endif %}
+<small>Author #{{ x.created_by }} · Technical/science: {{ 'reviewed' if x.science_reviewed_by else 'pending' }} · Language: {{ 'reviewed' if x.language_reviewed_by else 'pending' }} · {{ 'published' if x.published_at else 'unpublished' }}</small>
+{% if not x.published_at %}
+{% if can_science and x.created_by != actor_id and x.language_reviewed_by != actor_id and not x.science_reviewed_by %}
+<form method="post" action="{{ url_for('lesson_editor.action', edition_id=x.id,kind='science') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Approve science</button></form>{% endif %}
+{% if can_language and x.created_by != actor_id and x.science_reviewed_by != actor_id and not x.language_reviewed_by %}
+<form method="post" action="{{ url_for('lesson_editor.action', edition_id=x.id,kind='language') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Approve language</button></form>{% endif %}
+{% if is_admin and x.science_reviewed_by and x.language_reviewed_by %}
+<form method="post" action="{{ url_for('lesson_editor.action', edition_id=x.id,kind='publish') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Publish</button></form>{% endif %}
+{% endif %}</section>{% endfor %}
+</main></html>"""
+
+def available_editor_languages():
+    from smart_translation_system import db_lang_names
+    return sorted(db_lang_names())
+
+@lesson_editor_bp.get("/")
+def index():
+    db, user = _current()
+    _init(db)
+    is_admin = user["role"] == "admin"
+    can_science = has_specialty(db, user, "science")
+    can_language = has_specialty(db, user, "language")
+    # Contributors can see only their own drafts. Assigned reviewers see the
+    # review queue; admins see all. Nothing here is a public catalog.
+    if is_admin or can_science or can_language:
+        rows=db.execute("SELECT * FROM stem_editions ORDER BY created_at DESC LIMIT 100").fetchall()
+    else:
+        rows=db.execute("SELECT * FROM stem_editions WHERE created_by=? ORDER BY created_at DESC LIMIT 100",
+                        (user["id"],)).fetchall()
+    edit_id = request.args.get("edit", type=int)
+    edit_row = None
+    if edit_id is not None:
+        edit_row = db.execute(
+            "SELECT * FROM stem_editions WHERE id=? AND created_by=? AND published_at IS NULL",
+            (edit_id,user["id"])).fetchone()
+        if not edit_row:
+            abort(404)
+    import json
+    return render_template_string(
+        EDITOR, csrf=_csrf(), lessons=LESSON_BY_SLUG.values(),
+        source_lessons=LESSON_BY_SLUG, editions=rows, is_admin=is_admin,
+        actor_id=user["id"], edit_draft=edit_row,
+        prefill_steps="\n".join(json.loads(edit_row["steps_json"])) if edit_row else "",
+        prefill_options="\n".join(json.loads(edit_row["options_json"])) if edit_row else "",
+        languages=available_editor_languages(),
+        can_science=can_science, can_language=can_language
+    )
+
+@lesson_editor_bp.post("/save")
+def save():
+    import json
+    db, user = _current()
+    _require_csrf()
+    _init(db)
+    slug=request.form.get("lesson_slug","")
+    language=request.form.get("language","").strip()
+    dialect=request.form.get("dialect","").strip()
+    explanation=request.form.get("explanation","").strip()
+    example=request.form.get("example_text","").strip()
+    question=request.form.get("question","").strip()
+    choices=[s.strip() for s in request.form.get("options","").splitlines() if s.strip()]
+    steps=[item.strip() for item in request.form.get("steps_text","").splitlines() if item.strip()]
+    task=request.form.get("task_text","").strip()
+    narration=validate_audio_url(request.form.get("audio_url","").strip())
+    if slug not in LESSON_BY_SLUG or narration is None or language not in available_editor_languages() or not explanation or not example or not question or len(choices)!=3 or any([len(language)>100,len(dialect)>100,len(explanation)>3000,len(example)>1000,len(question)>500,len(task)>600,len(steps)>8,any(len(x)>250 for x in choices),any(len(x)>300 for x in steps)]):
+        abort(400)
+    if LESSON_BY_SLUG[slug]["level"] == "Adult Education" and (not steps or not task):
+        abort(400, description="Adult technology lessons need reviewed practical steps and an activity.")
+    # Published editions must not be silently overwritten. Drafts reset all reviews on changes.
+    existing=db.execute("SELECT id,published_at FROM stem_editions WHERE lesson_slug=? AND language=? AND dialect=?",(slug,language,dialect)).fetchone()
+    if existing and existing["published_at"]:
+        abort(409,description="Published editions are immutable; create a new version in a future revision.")
+    if existing:
+        creator = db.execute("SELECT created_by FROM stem_editions WHERE id=?", (existing["id"],)).fetchone()
+        if creator["created_by"] != user["id"]:
+            abort(409,description="This language and dialect already have an edition by another contributor.")
+    now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if existing:
+        db.execute("""UPDATE stem_editions SET explanation=?,example_text=?,question=?,options_json=?,steps_json=?,task_text=?,audio_url=?,created_at=?,science_reviewed_by=NULL,language_reviewed_by=NULL
+            WHERE id=? AND created_by=? AND published_at IS NULL""",
+            (explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,narration,now,existing["id"],user["id"]))
+    else:
+        db.execute("""INSERT INTO stem_editions(lesson_slug,language,dialect,explanation,example_text,question,options_json,steps_json,task_text,audio_url,created_by,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (slug,language,dialect,explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,narration,user["id"],now))
+    db.commit()
+    return redirect(url_for("lesson_editor.index"))
+
+@lesson_editor_bp.post("/<int:edition_id>/<kind>")
+def action(edition_id,kind):
+    db,user=_current()
+    _require_csrf()
+    _init(db)
+    row=db.execute("SELECT * FROM stem_editions WHERE id=?",(edition_id,)).fetchone()
+    if not row or row["published_at"]:
+        abort(404)
+    if kind in ("science","language"):
+        if not has_specialty(db, user, kind):
+            abort(403, description="Specialist reviewer assignment required.")
+        other="language_reviewed_by" if kind=="science" else "science_reviewed_by"
+        if row["created_by"]==user["id"] or row[other]==user["id"]:
+            abort(403,description="Author and reviewers must be different people.")
+        col="science_reviewed_by" if kind=="science" else "language_reviewed_by"
+        if row[col]:
+            abort(409, description="This lesson has already been reviewed for that specialty.")
+        db.execute(f"UPDATE stem_editions SET {col}=? WHERE id=?",(user["id"],edition_id))
+    elif kind=="publish":
+        if user["role"] != "admin":
+            abort(403)
+        if not row["science_reviewed_by"] or not row["language_reviewed_by"]:
+            abort(409,description="Two independent reviews are required.")
+        db.execute("UPDATE stem_editions SET published_by=?,published_at=? WHERE id=?",
+                   (user["id"],datetime.datetime.now(datetime.timezone.utc).isoformat(),edition_id))
+    else:
+        abort(404)
+    db.commit()
+    return redirect(url_for("lesson_editor.index"))

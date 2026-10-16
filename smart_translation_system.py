@@ -42,7 +42,7 @@
 #  ║                                                                          ║
 #  ║  .env file:  SECRET_KEY=x   HF_TOKEN=hf_xxx   DAILY_GOAL=20            ║
 #  ╠══════════════════════════════════════════════════════════════════════════╣
-#  ║  ADMIN: Silabstechdialect / Techdialect@2024  (change after first login)║
+#  ║  ADMIN: Set BOOTSTRAP_ADMIN_* securely (never use published defaults)  ║
 #  ╠══════════════════════════════════════════════════════════════════════════╣
 #  ║  BADGE CARDS:  /badge/<username>  (shareable, screenshottable)          ║
 #  ║  MESSAGES:     /contact  (users → admin)                                ║
@@ -52,6 +52,7 @@
 import os, csv, io, sqlite3, difflib, datetime, textwrap, re, hashlib, base64
 import time
 from functools import wraps
+from db_runtime import connect as connect_database, uses_remote_database, validate_database_configuration
 
 from flask import (
     Flask, request, render_template_string, redirect, url_for,
@@ -79,7 +80,12 @@ load_dotenv()
 #  CONFIGURATION
 # =============================================================================
 
-SECRET_KEY           = os.getenv("SECRET_KEY", "techdialect-dev-key-change-in-prod")
+SECRET_KEY           = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY must be configured. See .env.example.")
+if (os.getenv("VERCEL") or os.getenv("VERCEL_ENV")) and (
+        len(SECRET_KEY) < 32 or len(set(SECRET_KEY)) < 10):
+    raise RuntimeError("Vercel requires a strong, random SECRET_KEY of at least 32 characters.")
 HF_TOKEN             = os.getenv("HF_TOKEN")
 DAILY_GOAL           = int(os.getenv("DAILY_GOAL", "20"))
 SIMILARITY_THRESHOLD = 0.55
@@ -94,13 +100,20 @@ HF_MODEL_URL = "https://api-inference.huggingface.co/models/facebook/nllb-200-di
 SOURCE_LANG  = "eng_Latn"
 HF_MAX_RETRIES = 2
 
-DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "techdialect.db")
+DB_PATH        = os.path.abspath(os.getenv(
+    "DATABASE_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "techdialect.db")
+))
+# Fail early on serverless if no remote persistent database is configured.
+validate_database_configuration()
+if not uses_remote_database():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
 NON_WORD_RE    = re.compile(r"[^\w\s]", re.UNICODE)
 MULTISPACE_RE  = re.compile(r"\s+")
 
-DEFAULT_ADMIN_USERNAME = "Silabstechdialect"
-DEFAULT_ADMIN_PASSWORD = "Techdialect@2024"
+DEFAULT_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "")
+DEFAULT_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 
 # ── Badge levels ──────────────────────────────────────────────────────────────
 BADGE_LEVELS = [
@@ -151,7 +164,38 @@ CATEGORIES = [
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
-DB_BOOTSTRAPPED = False
+app.config.update(
+    SESSION_COOKIE_SECURE=bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV")
+                               or os.getenv("COOKIE_SECURE") == "1"),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    MAX_CONTENT_LENGTH=3 * 1024 * 1024,
+)
+if os.getenv("TRUSTED_HOSTS"):
+    app.config["TRUSTED_HOSTS"] = [
+        name.strip() for name in os.environ["TRUSTED_HOSTS"].split(",") if name.strip()
+    ]
+# CSRF guards for legacy forms, privacy headers and SQLite-backed request quotas.
+from legacy_security import install_legacy_security
+install_legacy_security(app, lambda: get_db())
+
+# STEM lessons are isolated from the legacy translation workflows.
+from stem_learning import stem_bp
+app.register_blueprint(stem_bp)
+from data_studio import data_bp
+app.register_blueprint(data_bp)
+from publishing import publish_bp
+app.register_blueprint(publish_bp)
+from lesson_editor import lesson_editor_bp
+app.register_blueprint(lesson_editor_bp)
+from reviewer_roles import reviewers_bp
+app.register_blueprint(reviewers_bp)
+from landing_page import landing_bp
+app.register_blueprint(landing_bp)
+from video_tutorials import videos_bp, video_admin_bp
+app.register_blueprint(videos_bp)
+app.register_blueprint(video_admin_bp)
+DB_BOOTSTRAPPED = uses_remote_database()
 
 # =============================================================================
 #  DATABASE
@@ -160,16 +204,13 @@ DB_BOOTSTRAPPED = False
 def get_db():
     global DB_BOOTSTRAPPED
     if not DB_BOOTSTRAPPED:
-        try:
-            init_db()
-            DB_BOOTSTRAPPED = True
-        except Exception as exc:
-            # Keep error visible in logs but allow request cycle to raise naturally.
-            print(f"[DB bootstrap error] {exc}")
+        # Never continue after an incomplete schema initialization.
+        init_db()
+        DB_BOOTSTRAPPED = True
     if "db" not in g:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = connect_database(DB_PATH)
+        if not uses_remote_database():
+            conn.execute("PRAGMA journal_mode=WAL")
         g.db = conn
     return g.db
 
@@ -179,8 +220,7 @@ def close_db(exc=None):
     if db: db.close()
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = connect_database(DB_PATH)
     c = conn.cursor()
 
     c.execute("""CREATE TABLE IF NOT EXISTS users (
@@ -211,7 +251,7 @@ def init_db():
         target_lang  TEXT    NOT NULL,
         category     TEXT    NOT NULL DEFAULT 'General',
         source       TEXT    NOT NULL DEFAULT 'manual',
-        quality_status TEXT  NOT NULL DEFAULT 'verified',
+        quality_status TEXT  NOT NULL DEFAULT 'pending_review',
         confidence   REAL,
         verified_by  INTEGER,
         verified_at  TEXT,
@@ -248,7 +288,7 @@ def init_db():
     # ── v6.2+ migrations: align older databases with new translation schema ──
     for sql in [
         "ALTER TABLE translations ADD COLUMN english_norm TEXT",
-        "ALTER TABLE translations ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'verified'",
+        "ALTER TABLE translations ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'pending_review'",
         "ALTER TABLE translations ADD COLUMN confidence REAL",
         "ALTER TABLE translations ADD COLUMN verified_by INTEGER",
         "ALTER TABLE translations ADD COLUMN verified_at TEXT",
@@ -285,10 +325,12 @@ def init_db():
     conn.commit()
 
     # Seed admin
-    if not conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone():
+    if (DEFAULT_ADMIN_USERNAME and DEFAULT_ADMIN_PASSWORD
+            and len(DEFAULT_ADMIN_PASSWORD) >= 12
+            and not conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()):
         conn.execute(
             "INSERT OR IGNORE INTO users (username,email,password_hash,role,approved,created_at) VALUES (?,?,?,'admin',1,?)",
-            (DEFAULT_ADMIN_USERNAME,"admin@techdialect.com",
+            (DEFAULT_ADMIN_USERNAME,os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost.invalid"),
              generate_password_hash(DEFAULT_ADMIN_PASSWORD),
              datetime.datetime.utcnow().isoformat())
         )
@@ -299,8 +341,16 @@ def init_db():
                         ("Hausa","hau_Arab"),("Igbo","ibo_Latn"),("Nigerian Pidgin","pcm_Latn")]:
         c.execute("INSERT OR IGNORE INTO languages (name,nllb_code,added_by,approved,created_at) VALUES (?,?,NULL,1,?)",
                   (name, code, datetime.datetime.utcnow().isoformat()))
+    conn.execute("""CREATE TABLE IF NOT EXISTS request_quotas (
+        identity TEXT NOT NULL,
+        window_number INTEGER NOT NULL,
+        hits INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(identity, window_number)
+    )""")
     conn.commit()
     conn.close()
+    global DB_BOOTSTRAPPED
+    DB_BOOTSTRAPPED = True
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -331,7 +381,7 @@ def db_translations(lang=None, category=None, limit=None, added_by=None):
 def db_exact(english, lang):
     norm = normalize_english_text(english)
     return get_db().execute(
-        "SELECT * FROM translations WHERE english_norm=? AND target_lang=?",
+        "SELECT * FROM translations WHERE english_norm=? AND target_lang=? AND quality_status='verified' AND local_text!='[PENDING]'",
         (norm, lang)
     ).fetchone()
 
@@ -355,7 +405,7 @@ def db_insert(english, local, lang, category, source="manual", added_by=None, al
                 ).fetchone()
                 if existing and existing["local_text"] == "[PENDING]":
                     db.execute(
-                        "UPDATE translations SET local_text=?, category=?, source=?, quality_status='verified', added_by=?, created_at=? WHERE id=?",
+                        "UPDATE translations SET local_text=?, category=?, source=?, quality_status='pending_review', verified_by=NULL, verified_at=NULL, added_by=?, created_at=? WHERE id=?",
                         (local.strip(), category or "General", source, added_by, datetime.datetime.utcnow().isoformat(), exists["id"])
                     )
                     db.commit()
@@ -364,7 +414,7 @@ def db_insert(english, local, lang, category, source="manual", added_by=None, al
         db.execute(
             "INSERT INTO translations (english_text,english_norm,local_text,target_lang,category,source,quality_status,added_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (cleaned_english,english_norm,local.strip(),lang,category or "General",source,
-             "pending_review" if source in ("csv_seed", "csv_seed_admin") else "verified",
+             "pending_review",
              added_by, datetime.datetime.utcnow().isoformat())
         )
         db.commit()
@@ -375,8 +425,10 @@ def db_insert(english, local, lang, category, source="manual", added_by=None, al
         )
         db.commit()
         return True
-    except sqlite3.IntegrityError:
-        return False
+    except Exception as exc:
+        if isinstance(exc, sqlite3.IntegrityError) or "unique constraint" in str(exc).lower():
+            return False
+        raise
 
 def db_update_translation(tid, local, category, editor_id):
     db = get_db()
@@ -390,8 +442,8 @@ def db_update_translation(tid, local, category, editor_id):
     if not can_edit:
         return False
     db.execute(
-        "UPDATE translations SET local_text=?, category=?, source='manual_edit', added_by=?, created_at=? WHERE id=?",
-        (local.strip(), category or "General", editor_id, datetime.datetime.utcnow().isoformat(), tid)
+        "UPDATE translations SET local_text=?, category=?, source='manual_edit', quality_status='pending_review', verified_by=NULL, verified_at=NULL, created_at=? WHERE id=?",
+        (local.strip(), category or "General", datetime.datetime.utcnow().isoformat(), tid)
     )
     db.commit()
     return row["target_lang"]
@@ -604,13 +656,13 @@ def db_fuzzy_candidates(english_norm, lang, limit=250):
     first_token = english_norm.split()[0] if english_norm else ""
     prefix = english_norm[:4]
     rows = db.execute(
-        "SELECT * FROM translations WHERE target_lang=? AND (english_norm LIKE ? OR english_norm LIKE ?) LIMIT ?",
+        "SELECT * FROM translations WHERE target_lang=? AND quality_status='verified' AND local_text!='[PENDING]' AND (english_norm LIKE ? OR english_norm LIKE ?) LIMIT ?",
         (lang, f"{first_token}%", f"{prefix}%", int(limit))
     ).fetchall()
     if rows:
         return rows
     return db.execute(
-        "SELECT * FROM translations WHERE target_lang=? ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM translations WHERE target_lang=? AND quality_status='verified' AND local_text!='[PENDING]' ORDER BY created_at DESC LIMIT ?",
         (lang, min(int(limit), 120))
     ).fetchall()
 
@@ -953,15 +1005,31 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
         {% else %}{{ badge_emoji }}{% endif %}
         {{ badge_label }}
       </a>
+      <a href="{{ url_for('stem.adults_index') }}" class="chip text-decoration-none text-success">
+        <i class="bi bi-phone"></i>Adult Tech Skills
+      </a>
+      <a href="{{ url_for('stem.index') }}" class="chip text-decoration-none text-success">
+        <i class="bi bi-book"></i>STEM Learn
+      </a>
+      <a href="{{ url_for('videos.index') }}" class="chip text-decoration-none text-primary">
+        <i class="bi bi-play-circle"></i>Video Tutorials
+      </a>
+      {% if user.role == 'admin' %}
+      <a href="{{ url_for('video_admin.dashboard') }}" class="chip text-decoration-none text-warning">
+        <i class="bi bi-camera-video"></i>Manage Videos
+      </a>
+      {% endif %}
       <a href="{{ url_for('propose_language') }}" class="chip text-decoration-none text-primary">
         <i class="bi bi-plus-circle"></i>Add Language
       </a>
       <a href="{{ url_for('contact') }}" class="chip text-decoration-none text-info">
         <i class="bi bi-envelope"></i>Contact
       </a>
-      <a href="{{ url_for('logout') }}" class="chip text-decoration-none text-danger">
-        <i class="bi bi-box-arrow-right"></i>{{ user.username }}
-      </a>
+      <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
+        <button type="submit" class="chip text-decoration-none text-danger border-0 bg-transparent">
+          <i class="bi bi-box-arrow-right"></i>{{ user.username }}
+        </button>
+      </form>
     </div>
   </div>
 </nav>
@@ -1352,7 +1420,7 @@ function setProg(p){if(!artProg)return;artProg.classList.remove('d-none');artPro
 function translateArticle(){var text=artInput?artInput.value.trim():'',lang=artLang?artLang.value:selLang;if(!text){setStatus('Paste some text first.','danger');return;}
 if(artBtn){artBtn.disabled=true;artBtn.innerHTML='<i class="bi bi-hourglass-split me-2"></i>Translating…';}
 if(artOutput)artOutput.value='';if(chunkRes)chunkRes.innerHTML='';if(artWrap)artWrap.style.display='none';if(copyBtn)copyBtn.classList.add('d-none');if(dlBtn)dlBtn.classList.add('d-none');if(clearBtn)clearBtn.classList.remove('d-none');setProg(8);setStatus('Sending to AI…','primary');
-fetch('/translate_article',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,lang:lang})}).then(function(r){return r.json();}).then(function(d){
+fetch('/translate_article',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':(document.querySelector('meta[name="csrf-token"]')||{}).content||''},body:JSON.stringify({text:text,lang:lang})}).then(function(r){return r.json();}).then(function(d){
 if(d.status==='error'||d.status==='no_ai'){setProg(0);artProg.classList.add('d-none');setStatus(d.message||'Failed.','danger');if(artBtn){artBtn.disabled=false;artBtn.innerHTML='<i class="bi bi-arrow-right-circle me-2"></i>Translate Article';}return;}
 if(artOutput)artOutput.value=d.full_translation||'';setProg(100);setStatus('Done — '+d.total_chunks+' chunk'+(d.total_chunks!==1?'s':'')+' translated.','success');if(copyBtn)copyBtn.classList.remove('d-none');if(dlBtn)dlBtn.classList.remove('d-none');
 	if(chunkRes&&d.chunks&&d.chunks.length){if(chunkBadge)chunkBadge.textContent=d.chunks.length+' paragraphs';var html='';d.chunks.forEach(function(c){var b=c.source==='db'?'<span class="badge-db">DB</span>':'<span class="badge-ai">AI</span>';html+='<div class="chunk-row"><div class="row g-2"><div class="col-md-6 chunk-en">'+esc(c.english)+'</div><div class="col-md-6 chunk-tiv">'+b+' '+esc(c.local||'—')+'</div></div></div>';});chunkRes.innerHTML=html;artWrap.style.display='block';}
@@ -1385,7 +1453,10 @@ td{vertical-align:middle!important;font-size:.85rem;}
     <span class="brand"><i class="bi bi-shield-lock me-2"></i>Tech<span>dialect</span> Admin</span>
     <div>
       <a href="{{ url_for('dashboard') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-arrow-left me-1"></i>Dashboard</a>
-      <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
+      <a href="{{ url_for('video_admin.dashboard') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-camera-video me-1"></i>Manage Videos</a>
+      <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
+        <button type="submit" class="btn btn-outline-danger btn-sm">Logout</button>
+      </form>
     </div>
   </div>
 </nav>
@@ -1709,12 +1780,13 @@ def register():
         confirm  = request.form.get("confirm","")
         if not username or not email or not password:
             flash("All fields are required.","danger"); return redirect(url_for("register"))
-        if len(username) < 3:
-            flash("Username must be at least 3 characters.","danger"); return redirect(url_for("register"))
+        if not re.fullmatch(r"[\w.-]{3,40}", username):
+            flash("Username must be 3 to 40 letters, numbers, dots, dashes or underscores.","danger")
+            return redirect(url_for("register"))
         if password != confirm:
             flash("Passwords do not match.","danger"); return redirect(url_for("register"))
-        if len(password) < 6:
-            flash("Password must be at least 6 characters.","danger"); return redirect(url_for("register"))
+        if len(password) < 12 or len(password) > 256:
+            flash("Password must be 12 to 256 characters.","danger"); return redirect(url_for("register"))
         try:
             db = get_db()
             db.execute("INSERT INTO users (username,email,password_hash,role,approved,created_at) VALUES (?,?,?,'user',0,?)",
@@ -1722,8 +1794,11 @@ def register():
             db.commit()
             flash("Account created! An admin will approve it shortly. You'll be able to log in once approved.","success")
             return redirect(url_for("login"))
-        except sqlite3.IntegrityError:
-            flash("Username or email already exists.","danger"); return redirect(url_for("register"))
+        except Exception as exc:
+            if isinstance(exc, sqlite3.IntegrityError) or "unique constraint" in str(exc).lower():
+                flash("Username or email already exists.","danger")
+                return redirect(url_for("register"))
+            raise
     form_html = """<form method="POST"><h5 class="fw-bold mb-4">Create Account</h5>
     <div class="mb-3"><label class="form-label">Username</label><input type="text" name="username" class="form-control" required autofocus></div>
     <div class="mb-3"><label class="form-label">Email</label><input type="email" name="email" class="form-control" required></div>
@@ -1734,7 +1809,7 @@ def register():
     <div class="text-center"><small class="text-muted">Have an account? <a href="/login">Sign in</a></small></div></form>"""
     return render_template_string(AUTH_HTML, page_title="Register", form_html=form_html)
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear(); flash("You have been logged out.","info"); return redirect(url_for("login"))
 
@@ -1748,8 +1823,8 @@ def change_password():
     confirm_pw = request.form.get("confirm_password","")
     if not check_password_hash(u["password_hash"], current_pw):
         flash("Current password is incorrect.","danger")
-    elif len(new_pw) < 6:
-        flash("New password must be at least 6 characters.","danger")
+    elif len(new_pw) < 12 or len(new_pw) > 256:
+        flash("New password must be 12 to 256 characters.","danger")
     elif new_pw != confirm_pw:
         flash("New passwords do not match.","danger")
     else:
@@ -2228,7 +2303,7 @@ def contact():
 #  MAIN APP ROUTES
 # =============================================================================
 
-@app.route("/", methods=["GET"])
+@app.route("/dashboard", methods=["GET"])
 @login_required
 def dashboard():
     lang = request.args.get("lang", session.get("selected_lang"))
@@ -2258,7 +2333,7 @@ def add_route():
         flash("Both English and translation are required.","warning"); return redirect(url_for("dashboard"))
     if db_insert(english,local,lang,category,"manual",u["id"]):
         session["last_category"] = category; session["selected_lang"] = lang
-        flash(f'✅ Saved: "{english}" → "{local}"',"success")
+        flash(f'Submitted "{english}" → "{local}" for review before public use.',"success")
     else:
         flash(f'"{english}" already exists in {lang}.',"info")
     return redirect(url_for("dashboard", lang=lang))
@@ -2272,7 +2347,7 @@ def save_route():
     category = request.form.get("category","General").strip()
     u = current_user()
     if db_insert(english,local,lang,category,"ai",u["id"]):
-        flash(f'✅ Saved AI translation: "{english}"',"success")
+        flash(f'Saved AI suggestion for review: "{english}". It is not yet verified.',"success")
     else:
         flash(f'"{english}" already exists in {lang}.',"info")
     session["selected_lang"] = lang
@@ -2466,11 +2541,11 @@ if __name__ == "__main__":
     print("="*65)
     print(f"  DB     : {DB_PATH}")
     print(f"  AI     : {'✅ HuggingFace API active' if HF_TOKEN else '❌ No HF_TOKEN — DB-only mode'}")
-    print(f"  Admin  : {DEFAULT_ADMIN_USERNAME} / Techdialect@2024")
+    print("  Admin  : configured through private BOOTSTRAP_ADMIN_* variables")
     print(f"  URL    : http://127.0.0.1:5000")
     print(f"  Badge  : http://127.0.0.1:5000/badge/<username>")
     print(f"  Stop   : Ctrl+C")
     print("="*65 + "\n")
-    app.run(debug=True, host="127.0.0.1", port=5000, use_reloader=False)
-else:
-    init_db()
+    app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1", host="127.0.0.1", port=5000, use_reloader=False)
+# All schema changes now happen at explicit migration time or the first
+# local SQLite request. Serverless requests never auto-migrate remote storage.
