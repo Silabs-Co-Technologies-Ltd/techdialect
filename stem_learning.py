@@ -65,11 +65,11 @@ ol{padding-left:1.7rem;line-height:1.7}li{margin:9px 0}
 <p class="muted">Practice with fictional or non-sensitive details. Do not share a password, PIN or OTP.</p>
 </section>
 {% endif %}
-<form method="get"><label for="language">Reviewed terminology language</label>
+<form method="get"><label for="language">{% if lesson.level=='Adult Education' %}Language for this technology lesson{% else %}Reviewed terminology language{% endif %}</label>
 <select name="language" id="language">
 <option value="">English only</option>
 {% for lang in languages %}<option value="{{ lang }}" {% if lang==selected_lang %}selected{% endif %}>{{ lang }}</option>{% endfor %}
-</select><button type="submit">Show terminology</button></form>
+</select><button type="submit">Show available reviewed content</button></form>
 {% if edition %}
 <section class="card"><p class="tag">Human-reviewed {{ selected_lang }} lesson edition</p>
 <p>{{ edition.explanation }}</p>
