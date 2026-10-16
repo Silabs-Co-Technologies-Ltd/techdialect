@@ -1,12 +1,33 @@
 """Editorial bilingual STEM lesson editions with two independent human reviews."""
 import datetime
 import hmac
+from urllib.parse import urlsplit
 from flask import Blueprint, abort, jsonify, request, redirect, url_for, render_template_string, session
 from data_studio import _current, _require_csrf, _csrf
 from stem_learning import LESSON_BY_SLUG
 from reviewer_roles import has_specialty
 
 lesson_editor_bp = Blueprint("lesson_editor", __name__, url_prefix="/studio/lessons")
+
+def validate_audio_url(url):
+    """Only explicitly approved media hosts and HTTPS audio formats."""
+    if not url:
+        return ""
+    if len(url) > 500:
+        return None
+    try:
+        parsed = urlsplit(url)
+        hostname = (parsed.hostname or "").lower()
+        approved = hostname == "res.cloudinary.com" or hostname.endswith(
+            ".public.blob.vercel-storage.com")
+        if (parsed.scheme != "https" or not approved or parsed.username or
+                parsed.password or parsed.port is not None or parsed.fragment or
+                not parsed.path.lower().endswith((".mp3", ".m4a", ".ogg", ".wav"))):
+            return None
+        return url
+    except (ValueError, TypeError):
+        return None
+
 
 def _init(db):
     db.execute("""CREATE TABLE IF NOT EXISTS stem_editions (
@@ -20,6 +41,7 @@ def _init(db):
         options_json TEXT NOT NULL,
         steps_json TEXT NOT NULL DEFAULT '[]',
         task_text TEXT NOT NULL DEFAULT '',
+        audio_url TEXT NOT NULL DEFAULT '',
         created_by INTEGER NOT NULL,
         science_reviewed_by INTEGER,
         language_reviewed_by INTEGER,
@@ -35,6 +57,8 @@ def _init(db):
         db.execute("ALTER TABLE stem_editions ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]'")
     if "task_text" not in columns:
         db.execute("ALTER TABLE stem_editions ADD COLUMN task_text TEXT NOT NULL DEFAULT ''")
+    if "audio_url" not in columns:
+        db.execute("ALTER TABLE stem_editions ADD COLUMN audio_url TEXT NOT NULL DEFAULT ''")
     db.commit()
 
 def published_edition(db, slug, language):
@@ -53,7 +77,9 @@ button{padding:.7rem 1rem;background:#005b7b;color:white;border:0;border-radius:
 small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editorial Studio</h1>
 <p>Technical accuracy and language reviews must be completed by different assigned specialists before publication. Adult technology lessons must also include reviewed practical steps.</p>
 {% if is_admin %}<p><a href="{{ url_for('reviewers.index') }}">Manage reviewers</a></p>{% endif %}
-{% if is_admin %}<section><h2>Create or replace an unpublished lesson edition</h2>
+<section><h2>Contribute a local-language lesson draft</h2>
+<p>Approved contributors can draft an edition. Only the original author may edit it before publication.
+Every draft requires two independent reviewers and final administrator publication.</p>
 <form method="post" action="{{ url_for('lesson_editor.save') }}">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">
 <label for="slug">STEM lesson</label><select id="slug" name="lesson_slug">{% for x in lessons %}<option value="{{ x.slug }}">{{ x.title }}</option>{% endfor %}</select>
@@ -67,14 +93,20 @@ small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editor
 <textarea id="steps" name="steps_text" maxlength="2000" rows="4" placeholder="Describe each step in the selected language"></textarea>
 <label for="task">Reviewed practice activity (required for adult lessons)</label>
 <textarea id="task" name="task_text" maxlength="600" rows="2"></textarea>
+<label for="narration">Optional recorded local-language audio URL</label>
+<input id="narration" type="url" name="audio_url" maxlength="500"
+placeholder="https://res.cloudinary.com/.../recording.mp3">
+<p><small>Audio is linked, not uploaded here. Use an authorized recording hosted on Cloudinary or public Vercel Blob.
+The audio URL is not exposed to learners until independent reviews and publication.</small></p>
 <label for="options">Three answer choices, one per line (first one must be correct)</label><textarea id="options" name="options" maxlength="1000" required></textarea>
-<button>Save draft for review</button></form></section>{% endif %}
+<button>Save draft for review</button></form></section>
 {% for x in editions %}<section><h2>{{ x.lesson_slug }} · {{ x.language }}</h2>
 <p>{{ x.explanation }}</p>
 {% if x.steps_json and x.steps_json != '[]' %}<h3>Practical steps for review</h3><p>{{ x.steps_json }}</p>{% endif %}
 {% if x.task_text %}<h3>Practice activity</h3><p>{{ x.task_text }}</p>{% endif %}
+{% if x.audio_url %}<p>Recorded narration URL: <a href="{{ x.audio_url }}" target="_blank" rel="noopener noreferrer">Listen for editorial review</a></p>{% endif %}
 <h3>Quiz</h3><p>{{ x.question }} · {{ x.options_json }}</p>
-<small>Technical/science: {{ 'reviewed' if x.science_reviewed_by else 'pending' }} · Language: {{ 'reviewed' if x.language_reviewed_by else 'pending' }} · {{ 'published' if x.published_at else 'unpublished' }}</small>
+<small>Author #{{ x.created_by }} · Technical/science: {{ 'reviewed' if x.science_reviewed_by else 'pending' }} · Language: {{ 'reviewed' if x.language_reviewed_by else 'pending' }} · {{ 'published' if x.published_at else 'unpublished' }}</small>
 {% if not x.published_at %}
 {% if can_science and x.created_by != actor_id and x.language_reviewed_by != actor_id and not x.science_reviewed_by %}
 <form method="post" action="{{ url_for('lesson_editor.action', edition_id=x.id,kind='science') }}">
@@ -99,20 +131,22 @@ def index():
     is_admin = user["role"] == "admin"
     can_science = has_specialty(db, user, "science")
     can_language = has_specialty(db, user, "language")
-    if not (is_admin or can_science or can_language):
-        abort(403)
-    rows=db.execute("SELECT * FROM stem_editions ORDER BY created_at DESC LIMIT 100").fetchall()
+    # Contributors can see only their own drafts. Assigned reviewers see the
+    # review queue; admins see all. Nothing here is a public catalog.
+    if is_admin or can_science or can_language:
+        rows=db.execute("SELECT * FROM stem_editions ORDER BY created_at DESC LIMIT 100").fetchall()
+    else:
+        rows=db.execute("SELECT * FROM stem_editions WHERE created_by=? ORDER BY created_at DESC LIMIT 100",
+                        (user["id"],)).fetchall()
     return render_template_string(EDITOR, csrf=_csrf(), lessons=LESSON_BY_SLUG.values(),
                                   editions=rows, is_admin=is_admin, actor_id=user["id"],
-                                  languages=available_editor_languages() if is_admin else [],
+                                  languages=available_editor_languages(),
                                   can_science=can_science, can_language=can_language)
 
 @lesson_editor_bp.post("/save")
 def save():
     import json
     db, user = _current()
-    if user["role"] != "admin":
-        abort(403)
     _require_csrf()
     _init(db)
     slug=request.form.get("lesson_slug","")
@@ -124,7 +158,8 @@ def save():
     choices=[s.strip() for s in request.form.get("options","").splitlines() if s.strip()]
     steps=[item.strip() for item in request.form.get("steps_text","").splitlines() if item.strip()]
     task=request.form.get("task_text","").strip()
-    if slug not in LESSON_BY_SLUG or language not in available_editor_languages() or not explanation or not example or not question or len(choices)!=3 or any([len(language)>100,len(dialect)>100,len(explanation)>3000,len(example)>1000,len(question)>500,len(task)>600,len(steps)>8,any(len(x)>250 for x in choices),any(len(x)>300 for x in steps)]):
+    narration=validate_audio_url(request.form.get("audio_url","").strip())
+    if slug not in LESSON_BY_SLUG or narration is None or language not in available_editor_languages() or not explanation or not example or not question or len(choices)!=3 or any([len(language)>100,len(dialect)>100,len(explanation)>3000,len(example)>1000,len(question)>500,len(task)>600,len(steps)>8,any(len(x)>250 for x in choices),any(len(x)>300 for x in steps)]):
         abort(400)
     if LESSON_BY_SLUG[slug]["level"] == "Adult Education" and (not steps or not task):
         abort(400, description="Adult technology lessons need reviewed practical steps and an activity.")
@@ -132,13 +167,19 @@ def save():
     existing=db.execute("SELECT id,published_at FROM stem_editions WHERE lesson_slug=? AND language=? AND dialect=?",(slug,language,dialect)).fetchone()
     if existing and existing["published_at"]:
         abort(409,description="Published editions are immutable; create a new version in a future revision.")
+    if existing:
+        creator = db.execute("SELECT created_by FROM stem_editions WHERE id=?", (existing["id"],)).fetchone()
+        if creator["created_by"] != user["id"]:
+            abort(409,description="This language and dialect already have an edition by another contributor.")
     now=datetime.datetime.now(datetime.timezone.utc).isoformat()
     if existing:
-        db.execute("""UPDATE stem_editions SET explanation=?,example_text=?,question=?,options_json=?,steps_json=?,task_text=?,created_by=?,created_at=?,science_reviewed_by=NULL,language_reviewed_by=NULL
-            WHERE id=?""",(explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,user["id"],now,existing["id"]))
+        db.execute("""UPDATE stem_editions SET explanation=?,example_text=?,question=?,options_json=?,steps_json=?,task_text=?,audio_url=?,created_at=?,science_reviewed_by=NULL,language_reviewed_by=NULL
+            WHERE id=? AND created_by=? AND published_at IS NULL""",
+            (explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,narration,now,existing["id"],user["id"]))
     else:
-        db.execute("""INSERT INTO stem_editions(lesson_slug,language,dialect,explanation,example_text,question,options_json,steps_json,task_text,created_by,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(slug,language,dialect,explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,user["id"],now))
+        db.execute("""INSERT INTO stem_editions(lesson_slug,language,dialect,explanation,example_text,question,options_json,steps_json,task_text,audio_url,created_by,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (slug,language,dialect,explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,narration,user["id"],now))
     db.commit()
     return redirect(url_for("lesson_editor.index"))
 
