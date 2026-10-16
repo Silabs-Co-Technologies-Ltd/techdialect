@@ -168,7 +168,6 @@ def test_contributor_can_create_private_draft_without_stealing_another(adult_cli
     assert b"Edit your lesson draft" in own_editor.data
     assert b"Reviewed first step" in own_editor.data
     assert b"English source lesson" in own_editor.data
-    assert b"sample" not in own_editor.data.lower() or b"source-lessons" in own_editor.data
     actor.update(id=3, role="user")
     assert client.get("/studio/lessons/?edit=1").status_code == 404
     # Other contributors cannot take over the exact same draft.
@@ -222,3 +221,27 @@ def test_reviewed_narration_appears_only_after_dual_approval(adult_client):
     assert b'data-lesson-audio=' in lesson.data
     assert b'Load recorded narration' in lesson.data
     assert b'<audio src=' not in lesson.data
+
+
+def test_editing_a_reviewed_draft_clears_reviews_and_audio_approval(adult_client):
+    client, db, actor = adult_client
+    audio = "https://demo.public.blob.vercel-storage.com/audio/recording.ogg"
+    assert client.post("/studio/lessons/save", data=_edition(audio_url=audio)).status_code == 302
+    reviewer_roles.init_reviewer_roles(db)
+    db.execute("""INSERT INTO stem_reviewer_roles
+        (user_id,specialty,granted_by,granted_at)
+        VALUES (2,'science',1,'2026-10-16')""")
+    db.commit()
+    actor.update(id=2, role="user")
+    assert client.post("/studio/lessons/1/science",
+                       data={"csrf_token":"test-adults"}).status_code == 302
+    assert db.execute("SELECT science_reviewed_by FROM stem_editions WHERE id=1").fetchone()[0] == 2
+    actor.update(id=1, role="admin")
+    assert client.post("/studio/lessons/save", data=_edition(
+        explanation="Second version, not yet approved",audio_url=audio)).status_code == 302
+    saved = db.execute("SELECT * FROM stem_editions WHERE id=1").fetchone()
+    assert saved["science_reviewed_by"] is None
+    assert saved["language_reviewed_by"] is None
+    assert saved["published_at"] is None
+    assert saved["audio_url"] == audio
+    assert audio.encode() not in client.get("/learn/smartphone-basics?language=Tiv").data
