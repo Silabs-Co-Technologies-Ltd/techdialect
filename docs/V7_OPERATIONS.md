@@ -66,3 +66,13 @@ The learning page installs a service worker scoped only to `/learn/`. It pre-cac
 - Adults can use the shared local-only progress report at `/learn/progress` and can revisit cached English lessons while offline.
 - Upload your own adult tech tutorial to YouTube then attach it to an adult lesson through `/admin/videos/`. Published adult tutorials are listed at `/videos/?level=Adult+Education`.
 - **Limitations:** No user-generated local-language translations are seeded by default; real speakers and subject experts must review them. Interactive videos still require connectivity. Audio narration and formal certifications are not included in this version.
+
+## Translator workflow and recorded local-language lessons
+- At `/learn/adults`, approved contributors can follow **Contribute a Translation** to `/studio/lessons/`. Admins still approve accounts and manage specialty reviewers.
+- The form now displays the English source title, explanation, practice steps, task, and original question beside the translation fields. These are **reference material**, not machine-translated text.
+- Contributors can draft localized explanations, examples, quizzes, steps, and activities. The **Edit my draft** link pre-fills the original author's unpublished draft. Other contributors cannot edit or inspect drafts they did not create, except assigned reviewers and admins participating in review.
+- All updates to an unpublished draft reset both reviewer approvals. Published editions cannot be overwritten through this form.
+- Optionally link an authorized native-speaker recording from an HTTPS Cloudinary or public Vercel Blob URL ending in .mp3, .m4a, .ogg or .wav. TechDialect does **not** upload audio directly in this release; upload to trusted storage first with permission from the speaker.
+- Recorded audio URL is private to editorial reviewers while in draft/review. It appears on public lesson pages **only after both independent reviews and explicit publication**. The learner chooses **Load recorded narration** before the audio element is created; loading an external audio host may share connection information.
+- Keep a clear record of speaker consent, copyright permission, dialect and educational accuracy. Avoid recording or disclosing minors' voices or private data without appropriate parental authorization.
+- Audio streams require internet unless the browser happens to have cached them; TechDialect intentionally does **not** pre-cache external audio or third-party video.

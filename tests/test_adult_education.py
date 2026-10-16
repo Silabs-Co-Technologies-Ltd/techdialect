@@ -163,7 +163,14 @@ def test_contributor_can_create_private_draft_without_stealing_another(adult_cli
     assert author["published_at"] is None
     public = client.get("/learn/smartphone-basics?language=Tiv").data
     assert b"tiv-lesson.mp3" not in public
+    own_editor = client.get("/studio/lessons/?edit=1")
+    assert own_editor.status_code == 200
+    assert b"Edit your lesson draft" in own_editor.data
+    assert b"Reviewed first step" in own_editor.data
+    assert b"English source lesson" in own_editor.data
+    assert b"sample" not in own_editor.data.lower() or b"source-lessons" in own_editor.data
     actor.update(id=3, role="user")
+    assert client.get("/studio/lessons/?edit=1").status_code == 404
     # Other contributors cannot take over the exact same draft.
     assert client.post("/studio/lessons/save", data=_edition()).status_code == 409
     assert b"Locally reviewed explanation" not in client.get("/studio/lessons/").data
