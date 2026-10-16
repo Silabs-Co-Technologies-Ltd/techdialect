@@ -12,6 +12,13 @@ def test_application_boots_cleanly(tmp_path):
     script = """
 from smart_translation_system import app
 with app.test_client() as client:
+    home=client.get('/')
+    assert home.status_code == 200
+    assert b'Technology makes sense in every language' in home.data
+    assert b'Adult Education' in home.data
+    assert b'/learn/adults' in home.data
+    assert b'20' in home.data and b'12' in home.data
+    assert client.get('/dashboard').status_code == 302
     assert client.get('/learn/').status_code == 200
     assert client.get('/learn/plant-food').status_code == 200
     assert client.get('/learn/adults').status_code == 200

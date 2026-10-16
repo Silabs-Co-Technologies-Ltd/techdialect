@@ -172,6 +172,8 @@ from lesson_editor import lesson_editor_bp
 app.register_blueprint(lesson_editor_bp)
 from reviewer_roles import reviewers_bp
 app.register_blueprint(reviewers_bp)
+from landing_page import landing_bp
+app.register_blueprint(landing_bp)
 from video_tutorials import videos_bp, video_admin_bp
 app.register_blueprint(videos_bp)
 app.register_blueprint(video_admin_bp)
@@ -2273,7 +2275,7 @@ def contact():
 #  MAIN APP ROUTES
 # =============================================================================
 
-@app.route("/", methods=["GET"])
+@app.route("/dashboard", methods=["GET"])
 @login_required
 def dashboard():
     lang = request.args.get("lang", session.get("selected_lang"))
