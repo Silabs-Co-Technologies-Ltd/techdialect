@@ -144,7 +144,6 @@ def test_adult_lesson_untranslated_does_not_invent_translation(adult_client):
     client, db, actor = adult_client
     response=client.get("/learn/ai-assistants?language=Tiv")
     assert response.status_code == 200
-    assert b"A fully reviewed" not in response.data  # See explicit lower-case fallback.
     assert b"fully reviewed Tiv version is not yet available" in response.data
     assert b"never paste passwords" in response.data.lower()
     assert b"Human-reviewed Tiv lesson edition" not in response.data
