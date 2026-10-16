@@ -51,6 +51,8 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 .progress-indicator{display:block;color:#285f49;font-weight:600}
 .reset-progress{border:1px solid #b4cad1;border-radius:8px;padding:8px 12px;background:#fff;margin:6px 0 16px}
 ol{padding-left:1.7rem;line-height:1.7}li{margin:9px 0}
+ .audio-load{padding:12px 18px;background:#095f70;color:white;border:0;border-radius:10px;cursor:pointer}
+audio{width:100%;margin-top:10px;max-width:100%}
 .video-placeholder{padding:24px;border:0;background:#18394c;color:white;border-radius:12px;cursor:pointer;min-height:140px;width:100%;font:inherit}
 [data-video-player] iframe{aspect-ratio:16/9;width:100%;border:0;border-radius:12px}
 </style></head><body><main class="wrap">
@@ -79,6 +81,14 @@ ol{padding-left:1.7rem;line-height:1.7}li{margin:9px 0}
 {% endif %}
 {% if local_task %}<h3>Try this</h3><p>{{ local_task }}</p>{% endif %}
 <p><strong>Example:</strong> {{ edition.example_text }}</p>
+{% if edition.audio_url %}
+<div class="card" aria-label="Recorded local-language narration">
+<strong>Recorded {{ selected_lang }} audio</strong>
+<p class="muted">Made available after editorial approval. Audio is requested from its external host only when you choose to listen; internet access may be required.</p>
+<button type="button" class="audio-load" data-lesson-audio="{{ edition.audio_url }}"
+aria-label="Load {{ selected_lang }} recorded explanation">Load recorded narration</button>
+</div>
+{% endif %}
 <div class="quiz" data-quiz data-language="{{ selected_lang }}" aria-label="Local-language practice">
 <h3>{{ edition.question }}</h3>
 {% for choice in edition_choices %}
@@ -146,6 +156,19 @@ ol{padding-left:1.7rem;line-height:1.7}li{margin:9px 0}
 <script src="/videos/embed.js" defer></script>
 <script>
 (function() {
+  document.querySelectorAll('[data-lesson-audio]').forEach(function(button) {
+    button.addEventListener('click', function() {
+      const url = button.getAttribute('data-lesson-audio');
+      if (!url || !url.startsWith('https://')) return;
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'none';
+      audio.src = url;
+      audio.setAttribute('aria-label', button.getAttribute('aria-label') || 'Lesson narration');
+      button.replaceWith(audio);
+      audio.focus();
+    });
+  });
   // Only the device stores progress. No names, accounts or learner details are sent.
   const progressKey = 'techdialect-stem-progress-v1';
   function readProgress() {
@@ -267,6 +290,7 @@ small{color:#3c6070}.tag{color:#2e6a78;font-weight:700}
 </style></head><body><main>
 <nav><a href="{{ url_for('stem.index') }}">School STEM</a> ·
 <a href="/videos/?level=Adult+Education">Adult Video Tutorials</a> ·
+<a href="{{ url_for('lesson_editor.index') }}">Contribute a Translation</a> ·
 <a href="{{ url_for('stem.progress_report') }}">Device Progress</a></nav>
 <section class="hero"><small style="color:#c5edf0">TECHDIALECT ADULT EDUCATION</small>
 <h1>Technology skills for everyday life</h1>
@@ -293,7 +317,8 @@ small{color:#3c6070}.tag{color:#2e6a78;font-weight:700}
 <p><small>{{ lesson.subject }}</small></p>
 <p>{{ lesson.concept }}</p><p class="progress-indicator">Not practiced yet</p></article>
 {% endfor %}
-<p><small>No fees, accounts or student identity are needed to read starter lessons. Practice results stay on this device.</small></p>
+<p><small>No fees, accounts or student identity are needed to read starter lessons. Practice results stay on this device.
+Contributors must sign in with an approved account to submit translations.</small></p>
 <script src="{{ url_for('stem.progress_script') }}" defer></script>
 </main></body></html>"""
 
