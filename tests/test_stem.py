@@ -4,7 +4,7 @@ import stem_learning
 from stem_learning import stem_bp, LESSONS
 
 def test_unique_lessons():
-    assert len(LESSONS) == 20
+    assert len(LESSONS) == 32
     assert len({x["slug"] for x in LESSONS}) == len(LESSONS)
     assert all(len(x["options"]) >= 2 and 0 <= x["answer"] < len(x["options"]) for x in LESSONS)
 
@@ -88,8 +88,8 @@ def test_device_only_learning_progress_markup(monkeypatch):
 def test_pathway_catalog_and_routes():
     from curriculum_catalog import PATHWAYS, validate_pathways
     assert validate_pathways(stem_learning.LESSON_BY_SLUG)
-    assert len(PATHWAYS) == 3
-    assert len(LESSONS) == 20
+    assert len(PATHWAYS) == 6
+    assert len(LESSONS) == 32
     assert sum(len(p["lesson_slugs"]) for p in PATHWAYS) == len(LESSONS)
     app = Flask(__name__)
     app.register_blueprint(stem_learning.stem_bp)
@@ -97,6 +97,7 @@ def test_pathway_catalog_and_routes():
     home = client.get('/learn/')
     assert home.status_code == 200
     assert b'Primary 4 STEM Foundations' in home.data
+    assert b'Explore Adult Education' in home.data
     for path in PATHWAYS:
         response = client.get('/learn/path/' + path["slug"])
         assert response.status_code == 200

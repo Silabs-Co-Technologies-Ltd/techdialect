@@ -25,6 +25,27 @@ PATHWAYS = (
         "description": "Explore technology, measurements, algorithms and energy through six lessons.",
         "lesson_slugs": ("simple-circuits", "integers", "measurements-units", "energy-transfer", "algorithm-steps", "weather-climate"),
     },
+    {
+        "slug":"adult-digital-basics",
+        "title":"Smartphones and Digital Confidence",
+        "level":"Adult Education",
+        "description":"Learn phones, connections, typing and everyday file management.",
+        "lesson_slugs":("smartphone-basics","mobile-data-wifi","typing-and-voice","photos-files"),
+    },
+    {
+        "slug":"adult-online-safety",
+        "title":"Online Safety and Everyday Services",
+        "level":"Adult Education",
+        "description":"Use email, search and payments safely, and recognize common scams.",
+        "lesson_slugs":("email-basics","recognize-scams","search-trust","digital-payments"),
+    },
+    {
+        "slug":"adult-work-ai",
+        "title":"Work, Business and AI Tools",
+        "level":"Adult Education",
+        "description":"Learn document skills, budgeting, online business and responsible AI.",
+        "lesson_slugs":("documents-cv","spreadsheets-budget","sell-online","ai-assistants"),
+    },
 )
 PATHWAY_BY_SLUG = {path["slug"]: path for path in PATHWAYS}
 

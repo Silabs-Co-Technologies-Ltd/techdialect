@@ -29,6 +29,8 @@ LESSONS = [
     {"slug":"weather-climate","title":"Weather and climate are different","subject":"Basic Science","level":"JSS 1","concept":"Weather and climate","explanation":"Weather describes conditions such as rain, wind and temperature at a particular time and place. Climate describes typical weather patterns over many years.","question":"Which describes climate?","options":["Rain this afternoon","Typical rainfall over many years","A wind gust right now"],"answer":1},
     {"slug":"measurements-units","title":"Measuring things accurately","subject":"Mathematics","level":"JSS 1","concept":"SI units","explanation":"Measurements use agreed units. Length can be measured in metres, mass in kilograms and time in seconds. Choosing the right unit makes results easier to compare.","question":"What is the SI unit for length?","options":["Kilogram","Second","Metre"],"answer":2},
 ]
+from adult_catalog import ADULT_LESSONS
+LESSONS.extend(ADULT_LESSONS)
 LESSON_BY_SLUG = {lesson["slug"]: lesson for lesson in LESSONS}
 from curriculum_catalog import PATHWAYS, PATHWAY_BY_SLUG, validate_pathways
 validate_pathways(LESSON_BY_SLUG)
@@ -48,13 +50,21 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 .note{border-left:4px solid #e5a14a;padding:10px 14px;background:#fffaec}
 .progress-indicator{display:block;color:#285f49;font-weight:600}
 .reset-progress{border:1px solid #b4cad1;border-radius:8px;padding:8px 12px;background:#fff;margin:6px 0 16px}
+ol{padding-left:1.7rem;line-height:1.7}li{margin:9px 0}
 .video-placeholder{padding:24px;border:0;background:#18394c;color:white;border-radius:12px;cursor:pointer;min-height:140px;width:100%;font:inherit}
 [data-video-player] iframe{aspect-ratio:16/9;width:100%;border:0;border-radius:12px}
 </style></head><body><main class="wrap">
-<header><strong>TechDialect STEM</strong><nav><a href="/learn/">All lessons</a> · <a href="/learn/progress">Progress</a> · <a href="/videos/">Video Tutorials</a></nav><small id="network-status" role="status" aria-live="polite"></small></header>
+<header><strong>TechDialect STEM</strong><nav><a href="/learn/">School STEM</a> · <a href="/learn/adults">Adult Tech Learning</a> · <a href="/learn/progress">Progress</a> · <a href="/videos/">Video Tutorials</a></nav><small id="network-status" role="status" aria-live="polite"></small></header>
 {% if lesson %}
 <article data-lesson-detail="{{ lesson.slug }}"><p class="tag">{{ lesson.subject }} · {{ lesson.level }}</p><h1>{{ lesson.title }}</h1>
 <h2>{{ lesson.concept }}</h2><p>{{ lesson.explanation }}</p>
+{% if lesson.steps %}
+<section class="card" aria-label="Practical step-by-step activity"><h2>Practice step by step</h2>
+<ol>{% for step in lesson.steps %}<li>{{ step }}</li>{% endfor %}</ol>
+<h3>Try this on your device</h3><p>{{ lesson.task }}</p>
+<p class="muted">Practice with fictional or non-sensitive details. Do not share a password, PIN or OTP.</p>
+</section>
+{% endif %}
 <form method="get"><label for="language">Reviewed terminology language</label>
 <select name="language" id="language">
 <option value="">English only</option>
@@ -62,7 +72,13 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 </select><button type="submit">Show terminology</button></form>
 {% if edition %}
 <section class="card"><p class="tag">Human-reviewed {{ selected_lang }} lesson edition</p>
-<p>{{ edition.explanation }}</p><p><strong>Example:</strong> {{ edition.example_text }}</p>
+<p>{{ edition.explanation }}</p>
+{% if local_steps %}
+<h3>Reviewed step-by-step guidance</h3>
+<ol>{% for step in local_steps %}<li>{{ step }}</li>{% endfor %}</ol>
+{% endif %}
+{% if local_task %}<h3>Try this</h3><p>{{ local_task }}</p>{% endif %}
+<p><strong>Example:</strong> {{ edition.example_text }}</p>
 <div class="quiz" data-quiz data-language="{{ selected_lang }}" aria-label="Local-language practice">
 <h3>{{ edition.question }}</h3>
 {% for choice in edition_choices %}
@@ -83,7 +99,10 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 <p class="note">No reviewed {{ selected_lang }} terminology has been published for this concept. The English explanation remains available.</p>
 {% endif %}
 {% endif %}
-<p class="note">English source lesson. Local-language editions will appear only after teacher and native-speaker review.</p>
+{% if lesson.level=='Adult Education' and selected_lang and not edition %}
+<p class="note">A fully reviewed {{ selected_lang }} version is not yet available. The English instructions below are the original learning material.</p>
+{% endif %}
+<p class="note">{% if edition %}The English version remains available for comparison.{% else %}English source lesson. Local-language editions will appear only after specialist review.{% endif %}</p>
 <div class="quiz" data-quiz data-language="English" aria-label="English practice">
 <h3>Check your understanding</h3><p>{{ lesson.question }}</p>
 {% for option in lesson.options %}
@@ -106,18 +125,21 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 <a href="/videos/">Browse the video library</a>.</p>{% endif %}
 </article>
 {% else %}
-<h1>Find your STEM learning pathway</h1>
-<p class="muted">Starter learning sequences for Primary 4, Primary 5 and JSS 1. These are pilot lessons, not an official curriculum certification.</p>
-<h2>Choose a class</h2>
-{% for path in pathways %}
+<h1>Learn with TechDialect</h1>
+<p class="muted">Choose school STEM or practical technology learning for adults. All Nigerian-language editions must be reviewed before publication.</p>
+<article><h2>Technology for adults, in familiar languages</h2>
+<p>Learn how to use a smartphone, stay safe online, manage work and use AI tools.</p>
+<p><a href="{{ url_for('stem.adults_index') }}">Explore Adult Education →</a></p></article>
+<h2>School STEM (pilot lessons)</h2>
+{% for path in school_pathways %}
 <article class="pathway"><p class="tag">{{ path.level }} · {{ path.lesson_slugs|length }} lessons</p>
 <h3><a href="{{ url_for('stem.path_detail', path_slug=path.slug) }}">{{ path.title }}</a></h3>
 <p>{{ path.description }}</p></article>
 {% endfor %}
-<h2>All starter lessons</h2>
+<h2>School lesson library</h2>
 <p id="learning-progress" role="status" aria-live="polite"></p>
 <button type="button" id="clear-progress" class="reset-progress">Clear progress on this device</button>
-{% for item in lessons %}<article data-lesson="{{ item.slug }}"><p class="tag">{{ item.subject }} · {{ item.level }}</p>
+{% for item in school_lessons %}<article data-lesson="{{ item.slug }}"><p class="tag">{{ item.subject }} · {{ item.level }}</p>
 <h2><a href="{{ url_for('stem.lesson_detail',slug=item.slug) }}">{{ item.title }}</a></h2>
 <p>{{ item.concept }}</p><small class="progress-indicator">Not practiced yet</small></article>{% endfor %}
 {% endif %}
@@ -224,8 +246,67 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 
 @stem_bp.get("/")
 def index():
-    return render_template_string(PAGE, page_title="Learn", lessons=LESSONS, lesson=None,
-                                  pathways=PATHWAYS)
+    return render_template_string(PAGE, page_title="Learn", lesson=None,
+                                  school_lessons=[x for x in LESSONS if x["level"] != "Adult Education"],
+                                  school_pathways=[x for x in PATHWAYS if x["level"] != "Adult Education"])
+
+ADULTS_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Adult Technology Learning | TechDialect</title><style>
+:root{font-family:system-ui,sans-serif;color:#153244;background:#f3f8fa}
+body{margin:0}*{box-sizing:border-box}main{max-width:960px;margin:0 auto;padding:24px}
+a{color:#005e80}a:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid #e9a445;outline-offset:3px}
+h1{font-size:clamp(2rem,5vw,3rem)}p{line-height:1.6}
+.hero{background:#143e53;color:white;border-radius:20px;padding:32px;margin:20px 0}
+.hero a{color:#fbd887}.pathways{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(265px,100%),1fr));gap:18px}
+article,form{background:white;border:1px solid #d2e3e8;border-radius:14px;padding:20px;margin:16px 0}
+label{display:block;font-weight:600;margin-bottom:8px}
+select,button{font:inherit;padding:12px;border:1px solid #9bbcc6;border-radius:8px}
+button{background:#006b83;color:white;border:0}
+small{color:#3c6070}.tag{color:#2e6a78;font-weight:700}
+</style></head><body><main>
+<nav><a href="{{ url_for('stem.index') }}">School STEM</a> ·
+<a href="{{ url_for('videos.index',level='Adult Education') }}">Adult Video Tutorials</a> ·
+<a href="{{ url_for('stem.progress_report') }}">Device Progress</a></nav>
+<section class="hero"><small style="color:#c5edf0">TECHDIALECT ADULT EDUCATION</small>
+<h1>Technology skills for everyday life</h1>
+<p>Learn at your own pace, whether you are just starting with smartphones or want to grow a business using digital tools.</p>
+<p>Read the English starter lessons now. Reviewed Nigerian-language editions appear as language and technical specialists publish them.</p>
+</section>
+<form method="get" action="{{ url_for('stem.adults_index') }}">
+<label for="language">Choose a language for available reviewed lessons</label>
+<select id="language" name="language"><option value="">English source material</option>
+{% for lang in languages %}<option value="{{ lang }}" {% if lang==selected_lang %}selected{% endif %}>{{ lang }}</option>{% endfor %}
+</select><button type="submit">Apply language</button>
+<p><small>Selecting a language does not mean every lesson is translated yet. Unavailable reviewed editions retain clear English content.</small></p></form>
+<h2>Choose a practical learning track</h2>
+<div class="pathways">
+{% for path in pathways %}
+<article><p class="tag">{{ path.lesson_slugs|length }} short lessons</p>
+<h3><a href="{{ url_for('stem.path_detail',path_slug=path.slug,language=selected_lang if selected_lang else none) }}">{{ path.title }}</a></h3>
+<p>{{ path.description }}</p></article>
+{% endfor %}</div>
+<h2>All adult technology lessons</h2>
+{% for lesson in lessons %}
+<article data-lesson="{{ lesson.slug }}"><h3>
+<a href="{{ url_for('stem.lesson_detail',slug=lesson.slug,language=selected_lang if selected_lang else none) }}">{{ lesson.title }}</a></h3>
+<p><small>{{ lesson.subject }}</small></p>
+<p>{{ lesson.concept }}</p><p class="progress-indicator">Not practiced yet</p></article>
+{% endfor %}
+<p><small>No fees, accounts or student identity are needed to read starter lessons. Practice results stay on this device.</small></p>
+<script src="{{ url_for('stem.progress_script') }}" defer></script>
+</main></body></html>"""
+
+@stem_bp.get("/adults")
+def adults_index():
+    languages = available_languages()
+    selected = request.args.get("language", "").strip()
+    if selected and selected not in languages:
+        abort(400)
+    paths = [p for p in PATHWAYS if p["level"] == "Adult Education"]
+    lessons = [x for x in LESSONS if x["level"] == "Adult Education"]
+    return render_template_string(ADULTS_PAGE, pathways=paths, lessons=lessons,
+                                  languages=languages, selected_lang=selected)
 
 PATH_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -240,7 +321,8 @@ h1{font-size:clamp(1.5rem,4vw,2.2rem)}.muted{color:#425e6e}
 </style></head><body><main>
 <p><a href="{{ url_for('stem.index') }}">← All learning pathways</a> ·
 <a href="{{ url_for('stem.progress_report') }}">Device progress</a> ·
-<a href="/videos/">Video Tutorials</a></p>
+<a href="/videos/">Video Tutorials</a>
+{% if pathway.level=='Adult Education' %} · <a href="{{ url_for('stem.adults_index') }}">Adult Education</a>{% endif %}</p>
 <p class="muted">{{ pathway.level }} · Starter learning pathway</p>
 <h1>{{ pathway.title }}</h1><p>{{ pathway.description }}</p>
 <p class="muted">Follow the lessons in order. Each activity has a quick understanding check.
@@ -250,7 +332,7 @@ Successful practice is stored only on this device.</p>
 {% for lesson in lessons %}
 <article data-lesson="{{ lesson.slug }}">
 <p class="muted">Lesson {{ loop.index }} of {{ lessons|length }} · {{ lesson.subject }}</p>
-<h2><a href="{{ url_for('stem.lesson_detail', slug=lesson.slug) }}">{{ lesson.title }}</a></h2>
+<h2><a href="{{ url_for('stem.lesson_detail', slug=lesson.slug, language=selected_lang if selected_lang else none) }}">{{ lesson.title }}</a></h2>
 <p>{{ lesson.concept }}</p>
 <small class="progress-indicator">Not practiced yet</small>
 </article>
@@ -264,8 +346,11 @@ def path_detail(path_slug):
     pathway = PATHWAY_BY_SLUG.get(path_slug)
     if pathway is None:
         abort(404)
+    selected = request.args.get("language", "").strip()
+    if selected and selected not in available_languages():
+        abort(400)
     sequence = [LESSON_BY_SLUG[slug] for slug in pathway["lesson_slugs"]]
-    return render_template_string(PATH_PAGE, pathway=pathway, lessons=sequence)
+    return render_template_string(PATH_PAGE, pathway=pathway, lessons=sequence, selected_lang=selected)
 
 REPORT_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -365,22 +450,31 @@ def lesson_detail(slug):
     term = reviewed_term(lesson["concept"], selected)
     edition = None
     edition_choices = []
+    local_steps = []
+    local_task = ""
     if selected:
         import json
         edition = published_lesson_edition(slug, selected)
         if edition:
             edition_choices = json.loads(edition["options_json"])
+            if "steps_json" in edition.keys() and edition["steps_json"]:
+                local_steps = json.loads(edition["steps_json"])
+            if "task_text" in edition.keys():
+                local_task = edition["task_text"] or ""
     tutorials = lesson_tutorials(slug)
     return render_template_string(PAGE, page_title=lesson["title"], lesson=lesson,
                                   languages=languages, selected_lang=selected, term=term,
                                   edition=edition, edition_choices=edition_choices,
+                                  local_steps=local_steps, local_task=local_task,
                                   tutorials=tutorials)
 
 # Cache only public learning materials, not admin pages, credentials or private records.
 # Previously visited language editions are cached for offline revisiting.
-SW_VERSION = "techdialect-stem-v3"
-SW_JS = r"""const CACHE_NAME = "techdialect-stem-v3";
-const PRECACHE = ["/learn/", "/learn/progress", "/learn/progress.js",
+SW_VERSION = "techdialect-stem-v4"
+SW_JS = r"""const CACHE_NAME = "techdialect-stem-v4";
+const PRECACHE = ["/learn/", "/learn/adults", "/learn/progress", "/learn/progress.js",
+                  "/learn/path/adult-digital-basics", "/learn/path/adult-online-safety",
+                  "/learn/path/adult-work-ai",
                   "/learn/path/primary-4", "/learn/path/primary-5", "/learn/path/jss-1",
                   "/learn/plant-food",
                   "/learn/fractions",
@@ -401,7 +495,12 @@ const PRECACHE = ["/learn/", "/learn/progress", "/learn/progress.js",
                   "/learn/energy-transfer",
                   "/learn/algorithm-steps",
                   "/learn/weather-climate",
-                  "/learn/measurements-units"];
+                  "/learn/measurements-units",
+                  "/learn/smartphone-basics", "/learn/mobile-data-wifi",
+                  "/learn/typing-and-voice", "/learn/photos-files", "/learn/email-basics",
+                  "/learn/recognize-scams", "/learn/search-trust", "/learn/digital-payments",
+                  "/learn/documents-cv", "/learn/spreadsheets-budget",
+                  "/learn/sell-online", "/learn/ai-assistants"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME)
     .then((cache) => cache.addAll(PRECACHE))
