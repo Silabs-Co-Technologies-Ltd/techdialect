@@ -77,35 +77,70 @@ button{padding:.7rem 1rem;background:#005b7b;color:white;border:0;border-radius:
 small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editorial Studio</h1>
 <p>Technical accuracy and language reviews must be completed by different assigned specialists before publication. Adult technology lessons must also include reviewed practical steps.</p>
 {% if is_admin %}<p><a href="{{ url_for('reviewers.index') }}">Manage reviewers</a></p>{% endif %}
-<section><h2>Contribute a local-language lesson draft</h2>
+<section><h2>{{ 'Edit your lesson draft' if edit_draft else 'Contribute a local-language lesson draft' }}</h2>
 <p>Approved contributors can draft an edition. Only the original author may edit it before publication.
 Every draft requires two independent reviewers and final administrator publication.</p>
 <form method="post" action="{{ url_for('lesson_editor.save') }}">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">
-<label for="slug">STEM lesson</label><select id="slug" name="lesson_slug">{% for x in lessons %}<option value="{{ x.slug }}">{{ x.title }}</option>{% endfor %}</select>
+<label for="slug">STEM lesson</label><select id="slug" name="lesson_slug">
+{% for x in lessons %}<option value="{{ x.slug }}" {% if edit_draft and edit_draft.lesson_slug==x.slug %}selected{% endif %}>{{ x.level }} · {{ x.title }}</option>{% endfor %}</select>
+<details open><summary>English source lesson (translate, do not copy blindly)</summary>
+<h3 id="source-title"></h3><p id="source-explanation"></p>
+<h4>Original step-by-step guidance</h4><ol id="source-steps"></ol>
+<h4>Original practice activity</h4><p id="source-task"></p>
+<h4>Original question</h4><p id="source-question"></p>
+</details>
 <label for="lang">Approved language</label><select id="lang" name="language" required>
-{% for lang in languages %}<option value="{{ lang }}">{{ lang }}</option>{% endfor %}</select>
-<label for="dialect">Dialect (optional)</label><input id="dialect" name="dialect" maxlength="100">
-<label for="explain">Reviewed explanation</label><textarea id="explain" name="explanation" maxlength="3000" required></textarea>
-<label for="example">Local example</label><textarea id="example" name="example_text" maxlength="1000" required></textarea>
-<label for="question">Quiz question</label><textarea id="question" name="question" maxlength="500" required></textarea>
+{% for lang in languages %}<option value="{{ lang }}" {% if edit_draft and edit_draft.language==lang %}selected{% endif %}>{{ lang }}</option>{% endfor %}</select>
+<label for="dialect">Dialect (optional)</label><input id="dialect" name="dialect" maxlength="100" value="{{ edit_draft.dialect if edit_draft else '' }}">
+<label for="explain">Explanation in the selected language</label><textarea id="explain" name="explanation" maxlength="3000" required>{{ edit_draft.explanation if edit_draft else '' }}</textarea>
+<label for="example">Local example</label><textarea id="example" name="example_text" maxlength="1000" required>{{ edit_draft.example_text if edit_draft else '' }}</textarea>
+<label for="question">Quiz question in the selected language</label><textarea id="question" name="question" maxlength="500" required>{{ edit_draft.question if edit_draft else '' }}</textarea>
 <label for="steps">Reviewed practical steps (one per line, required for adult lessons)</label>
-<textarea id="steps" name="steps_text" maxlength="2000" rows="4" placeholder="Describe each step in the selected language"></textarea>
+<textarea id="steps" name="steps_text" maxlength="2000" rows="4" placeholder="Describe each step in the selected language">{{ prefill_steps }}</textarea>
 <label for="task">Reviewed practice activity (required for adult lessons)</label>
-<textarea id="task" name="task_text" maxlength="600" rows="2"></textarea>
+<textarea id="task" name="task_text" maxlength="600" rows="2">{{ edit_draft.task_text if edit_draft else '' }}</textarea>
 <label for="narration">Optional recorded local-language audio URL</label>
 <input id="narration" type="url" name="audio_url" maxlength="500"
-placeholder="https://res.cloudinary.com/.../recording.mp3">
+placeholder="https://res.cloudinary.com/.../recording.mp3" value="{{ edit_draft.audio_url if edit_draft else '' }}">
 <p><small>Audio is linked, not uploaded here. Use an authorized recording hosted on Cloudinary or public Vercel Blob.
 The audio URL is not exposed to learners until independent reviews and publication.</small></p>
-<label for="options">Three answer choices, one per line (first one must be correct)</label><textarea id="options" name="options" maxlength="1000" required></textarea>
-<button>Save draft for review</button></form></section>
+<label for="options">Three answer choices, one per line (first one must be correct)</label><textarea id="options" name="options" maxlength="1000" required>{{ prefill_options }}</textarea>
+<button>{{ 'Update my draft (resets reviews)' if edit_draft else 'Submit draft for review' }}</button></form>
+<script type="application/json" id="source-lessons">{{ source_lessons|tojson }}</script>
+<script>
+(function(){
+  const lessonSelect=document.getElementById('slug');
+  const data=JSON.parse(document.getElementById('source-lessons').textContent);
+  const title=document.getElementById('source-title');
+  const explanation=document.getElementById('source-explanation');
+  const steps=document.getElementById('source-steps');
+  const task=document.getElementById('source-task');
+  const question=document.getElementById('source-question');
+  function update(){
+    const current=data[lessonSelect.value];
+    if(!current)return;
+    title.textContent=current.title || '';
+    explanation.textContent=current.explanation || '';
+    task.textContent=current.task || 'Use the source lesson example.';
+    question.textContent=current.question || '';
+    steps.replaceChildren();
+    (current.steps || []).forEach(function(line){
+      const li=document.createElement('li');li.textContent=line;steps.appendChild(li);
+    });
+  }
+  lessonSelect.addEventListener('change',update);
+  update();
+})();
+</script></section>
 {% for x in editions %}<section><h2>{{ x.lesson_slug }} · {{ x.language }}</h2>
 <p>{{ x.explanation }}</p>
 {% if x.steps_json and x.steps_json != '[]' %}<h3>Practical steps for review</h3><p>{{ x.steps_json }}</p>{% endif %}
 {% if x.task_text %}<h3>Practice activity</h3><p>{{ x.task_text }}</p>{% endif %}
 {% if x.audio_url %}<p>Recorded narration URL: <a href="{{ x.audio_url }}" target="_blank" rel="noopener noreferrer">Listen for editorial review</a></p>{% endif %}
 <h3>Quiz</h3><p>{{ x.question }} · {{ x.options_json }}</p>
+{% if not x.published_at and x.created_by==actor_id %}
+<p><a href="{{ url_for('lesson_editor.index',edit=x.id) }}">Edit my draft</a></p>{% endif %}
 <small>Author #{{ x.created_by }} · Technical/science: {{ 'reviewed' if x.science_reviewed_by else 'pending' }} · Language: {{ 'reviewed' if x.language_reviewed_by else 'pending' }} · {{ 'published' if x.published_at else 'unpublished' }}</small>
 {% if not x.published_at %}
 {% if can_science and x.created_by != actor_id and x.language_reviewed_by != actor_id and not x.science_reviewed_by %}
@@ -138,10 +173,24 @@ def index():
     else:
         rows=db.execute("SELECT * FROM stem_editions WHERE created_by=? ORDER BY created_at DESC LIMIT 100",
                         (user["id"],)).fetchall()
-    return render_template_string(EDITOR, csrf=_csrf(), lessons=LESSON_BY_SLUG.values(),
-                                  editions=rows, is_admin=is_admin, actor_id=user["id"],
-                                  languages=available_editor_languages(),
-                                  can_science=can_science, can_language=can_language)
+    edit_id = request.args.get("edit", type=int)
+    edit_row = None
+    if edit_id is not None:
+        edit_row = db.execute(
+            "SELECT * FROM stem_editions WHERE id=? AND created_by=? AND published_at IS NULL",
+            (edit_id,user["id"])).fetchone()
+        if not edit_row:
+            abort(404)
+    import json
+    return render_template_string(
+        EDITOR, csrf=_csrf(), lessons=LESSON_BY_SLUG.values(),
+        source_lessons=LESSON_BY_SLUG, editions=rows, is_admin=is_admin,
+        actor_id=user["id"], edit_draft=edit_row,
+        prefill_steps="\n".join(json.loads(edit_row["steps_json"])) if edit_row else "",
+        prefill_options="\n".join(json.loads(edit_row["options_json"])) if edit_row else "",
+        languages=available_editor_languages(),
+        can_science=can_science, can_language=can_language
+    )
 
 @lesson_editor_bp.post("/save")
 def save():
