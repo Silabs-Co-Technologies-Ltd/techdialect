@@ -20,6 +20,9 @@ with app.test_client() as client:
     assert r.json['count'] == 0
     assert client.get('/studio/lessons/').status_code == 403
     assert client.get('/studio/reviewers/').status_code == 403
+    assert client.get('/videos/').status_code == 200
+    assert client.get('/admin/videos/').status_code == 403
+    assert client.get('/videos/embed.js').status_code == 200
     assert client.get('/logout').status_code == 405
     login_page = client.get('/login')
     assert login_page.status_code == 200
