@@ -201,12 +201,9 @@ DB_BOOTSTRAPPED = uses_remote_database()
 def get_db():
     global DB_BOOTSTRAPPED
     if not DB_BOOTSTRAPPED:
-        try:
-            init_db()
-            DB_BOOTSTRAPPED = True
-        except Exception as exc:
-            # Keep error visible in logs but allow request cycle to raise naturally.
-            print(f"[DB bootstrap error] {exc}")
+        # Never continue after an incomplete schema initialization.
+        init_db()
+        DB_BOOTSTRAPPED = True
     if "db" not in g:
         conn = connect_database(DB_PATH)
         if not uses_remote_database():
@@ -349,6 +346,8 @@ def init_db():
     )""")
     conn.commit()
     conn.close()
+    global DB_BOOTSTRAPPED
+    DB_BOOTSTRAPPED = True
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -2539,8 +2538,5 @@ if __name__ == "__main__":
     print(f"  Stop   : Ctrl+C")
     print("="*65 + "\n")
     app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1", host="127.0.0.1", port=5000, use_reloader=False)
-else:
-    # Production serverless functions are immutable and should never try to
-    # migrate shared storage at cold start. Run the explicit migration command.
-    if not uses_remote_database():
-        init_db()
+# All schema changes now happen at explicit migration time or the first
+# local SQLite request. Serverless requests never auto-migrate remote storage.
