@@ -57,11 +57,11 @@ def test_unreviewed_edition_cannot_publish(editorial):
     assert client.post("/studio/lessons/1/publish",data={"csrf_token":"editor-token"}).status_code==302
     assert db.execute("SELECT published_at FROM stem_editions WHERE id=1").fetchone()[0] is not None
 
-def test_unauthorized_draft(editorial):
+def test_approved_non_admin_can_start_draft(editorial):
     client,db,user=editorial
     user["role"]="user"
-    assert client.get("/studio/lessons/").status_code==403
-    assert client.post("/studio/lessons/save",data={}).status_code==403
+    assert client.get("/studio/lessons/").status_code==200
+    assert client.post("/studio/lessons/save",data={}).status_code==400
 
 def test_unapproved_language_is_not_editable(editorial):
     client, db, actor = editorial

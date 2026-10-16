@@ -12,6 +12,7 @@ from adult_catalog import ADULT_LESSONS
 from curriculum_catalog import PATHWAYS, validate_pathways
 
 
+
 @pytest.fixture
 def adult_client(monkeypatch):
     db = sqlite3.connect(":memory:")
@@ -147,3 +148,70 @@ def test_adult_lesson_untranslated_does_not_invent_translation(adult_client):
     assert b"fully reviewed Tiv version is not yet available" in response.data
     assert b"never paste passwords" in response.data.lower()
     assert b"Human-reviewed Tiv lesson edition" not in response.data
+
+
+
+def test_contributor_can_create_private_draft_without_stealing_another(adult_client):
+    client, db, actor = adult_client
+    actor.update(id=2, role="user")
+    payload = _edition(audio_url="https://res.cloudinary.com/demo/video/upload/v1/tiv-lesson.mp3")
+    assert client.get("/studio/lessons/").status_code == 200
+    assert client.post("/studio/lessons/save", data=payload).status_code == 302
+    author = db.execute("SELECT created_by,audio_url,published_at FROM stem_editions").fetchone()
+    assert author["created_by"] == 2
+    assert author["audio_url"].endswith("tiv-lesson.mp3")
+    assert author["published_at"] is None
+    public = client.get("/learn/smartphone-basics?language=Tiv").data
+    assert b"tiv-lesson.mp3" not in public
+    actor.update(id=3, role="user")
+    # Other contributors cannot take over the exact same draft.
+    assert client.post("/studio/lessons/save", data=_edition()).status_code == 409
+    assert b"Locally reviewed explanation" not in client.get("/studio/lessons/").data
+    # The original author can update the unpublished edition.
+    actor.update(id=2, role="user")
+    assert client.post("/studio/lessons/save",
+                       data=_edition(explanation="Updated translation")).status_code == 302
+    assert db.execute("SELECT created_by FROM stem_editions").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("url", [
+    "http://res.cloudinary.com/demo/video/upload/lesson.mp3",
+    "https://example.com/lesson.mp3",
+    "https://res.cloudinary.com.evil.example/lesson.mp3",
+    "https://res.cloudinary.com/demo/video/upload/lesson.exe",
+    "javascript:alert(1)",
+    "https://res.cloudinary.com:999/demo/lesson.mp3",
+])
+def test_recording_url_allowlist(adult_client, url):
+    client, db, actor = adult_client
+    assert client.post("/studio/lessons/save",
+                       data=_edition(audio_url=url)).status_code == 400
+    assert db.execute("SELECT COUNT(*) FROM stem_editions").fetchone()[0] == 0
+
+
+def test_reviewed_narration_appears_only_after_dual_approval(adult_client):
+    client, db, actor = adult_client
+    url = "https://res.cloudinary.com/demo/video/upload/v1/approved.mp3"
+    assert client.post("/studio/lessons/save",
+                       data=_edition(audio_url=url)).status_code == 302
+    reviewer_roles.init_reviewer_roles(db)
+    db.execute("""INSERT INTO stem_reviewer_roles
+        (user_id,specialty,granted_by,granted_at) VALUES
+        (2,'science',1,'2026-10-16'),(3,'language',1,'2026-10-16')""")
+    db.commit()
+    assert url.encode() not in client.get("/learn/smartphone-basics?language=Tiv").data
+    token = {"csrf_token": "test-adults"}
+    actor.update(id=2, role="user")
+    assert client.post("/studio/lessons/1/science", data=token).status_code == 302
+    assert url.encode() not in client.get("/learn/smartphone-basics?language=Tiv").data
+    actor.update(id=3, role="user")
+    assert client.post("/studio/lessons/1/language", data=token).status_code == 302
+    assert url.encode() not in client.get("/learn/smartphone-basics?language=Tiv").data
+    actor.update(id=1, role="admin")
+    assert client.post("/studio/lessons/1/publish", data=token).status_code == 302
+    lesson = client.get("/learn/smartphone-basics?language=Tiv")
+    assert lesson.status_code == 200
+    assert url.encode() in lesson.data
+    assert b'data-lesson-audio=' in lesson.data
+    assert b'Load recorded narration' in lesson.data
+    assert b'<audio src=' not in lesson.data
