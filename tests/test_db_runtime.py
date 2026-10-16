@@ -65,7 +65,7 @@ def test_remote_adapter_with_fake_dbapi_driver(tmp_path, monkeypatch):
 def test_application_import_on_vercel_without_storage_fails(tmp_path):
     env=os.environ.copy()
     env["VERCEL"]="1"
-    env["SECRET_KEY"]="a"+"b"*64
+    env["SECRET_KEY"]="a1B2c3D4e5F6g7H8i9J0KLMnopQRstUVWxyz"
     for name in ("TURSO_DATABASE_URL","TURSO_AUTH_TOKEN"):
         env.pop(name,None)
     env["DATABASE_PATH"]=str(tmp_path/"must-not-be-created.db")
