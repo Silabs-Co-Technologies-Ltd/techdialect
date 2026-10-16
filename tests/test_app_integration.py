@@ -14,6 +14,9 @@ from smart_translation_system import app
 with app.test_client() as client:
     assert client.get('/learn/').status_code == 200
     assert client.get('/learn/plant-food').status_code == 200
+    assert client.get('/learn/adults').status_code == 200
+    assert client.get('/learn/smartphone-basics').status_code == 200
+    assert client.get('/learn/path/adult-digital-basics').status_code == 200
     assert client.get('/learn/sw.js').status_code == 200
     r=client.get('/data/terms')
     assert r.status_code == 200, (r.status_code,r.data[:400])

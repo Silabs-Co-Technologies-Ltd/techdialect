@@ -266,7 +266,7 @@ button{background:#006b83;color:white;border:0}
 small{color:#3c6070}.tag{color:#2e6a78;font-weight:700}
 </style></head><body><main>
 <nav><a href="{{ url_for('stem.index') }}">School STEM</a> ·
-<a href="{{ url_for('videos.index',level='Adult Education') }}">Adult Video Tutorials</a> ·
+<a href="/videos/?level=Adult+Education">Adult Video Tutorials</a> ·
 <a href="{{ url_for('stem.progress_report') }}">Device Progress</a></nav>
 <section class="hero"><small style="color:#c5edf0">TECHDIALECT ADULT EDUCATION</small>
 <h1>Technology skills for everyday life</h1>

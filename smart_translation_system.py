@@ -979,6 +979,9 @@ body{background:var(--bg);font-family:'Segoe UI',system-ui,sans-serif;font-size:
         {% else %}{{ badge_emoji }}{% endif %}
         {{ badge_label }}
       </a>
+      <a href="{{ url_for('stem.adults_index') }}" class="chip text-decoration-none text-success">
+        <i class="bi bi-phone"></i>Adult Tech Skills
+      </a>
       <a href="{{ url_for('stem.index') }}" class="chip text-decoration-none text-success">
         <i class="bi bi-book"></i>STEM Learn
       </a>

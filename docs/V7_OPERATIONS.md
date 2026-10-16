@@ -56,3 +56,13 @@ The learning page installs a service worker scoped only to `/learn/`. It pre-cac
 - All 20 have one short multiple-choice practice check and offline-first public pages. Use the YouTube tutorial editor to connect your own published videos to any lesson.
 - Language translations are **not** auto-generated or automatically approved. Every localized lesson still goes through specialist science and language review.
 - Curriculum examples need classroom educator review and appropriate regional context before school adoption.
+
+## TechDialect Adults: practical technology in Nigerian languages
+- Access the adult learning homepage at `/learn/adults`. This is **separate from school STEM** and does not require a login.
+- Twelve adult-friendly pilot lessons are organized in three tracks: smartphone/digital confidence, online safety/services, and work/business/AI. Each English lesson includes a practical activity and a short knowledge check.
+- Visitors can select an approved Nigerian language such as Tiv, Hausa, Yoruba, Igbo or Nigerian Pidgin. Only human-reviewed, explicitly published translations appear. No automatic translations are represented as verified.
+- `/studio/lessons/` can now author complete localized adult editions, including a translated explanation, examples, question/answers, step-by-step guidance and a practical activity. **Adult editions must include translated steps and an activity**, and still require different technical and language reviewers plus explicit admin publication.
+- Existing `stem_editions` SQLite tables are upgraded safely with `steps_json` and `task_text` columns; previously published records are unchanged.
+- Adults can use the shared local-only progress report at `/learn/progress` and can revisit cached English lessons while offline.
+- Upload your own adult tech tutorial to YouTube then attach it to an adult lesson through `/admin/videos/`. Published adult tutorials are listed at `/videos/?level=Adult+Education`.
+- **Limitations:** No user-generated local-language translations are seeded by default; real speakers and subject experts must review them. Interactive videos still require connectivity. Audio narration and formal certifications are not included in this version.

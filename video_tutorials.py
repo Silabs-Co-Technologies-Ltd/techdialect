@@ -134,7 +134,8 @@ form{background:#fff;border:1px solid #d7e5e9;border-radius:14px;padding:18px;ma
 a:focus-visible,button:focus-visible,select:focus-visible{outline:3px solid #e5a54b;outline-offset:3px}
 .note{font-size:.9rem;color:#476775}
 </style></head><body><main>
-<nav><a href="{{ url_for('stem.index') }}">STEM Lessons</a><a href="{{ url_for('stem.progress_report') }}">My Progress</a>
+<nav><a href="{{ url_for('stem.index') }}">School STEM</a>
+<a href="{{ url_for('stem.adults_index') }}">Adult Tech Learning</a><a href="{{ url_for('stem.progress_report') }}">My Progress</a>
 <a href="{{ url_for('videos.index') }}">Video Tutorials</a></nav>
 <h1>STEM Video Tutorials</h1>
 <p>Watch TechDialect tutorials hosted on YouTube, alongside the lessons they explain.</p>

@@ -154,3 +154,14 @@ def test_unsafe_title_is_escaped(app_client):
     page = client.get("/videos/").data
     assert b"&lt;script&gt;" in page
     assert b"<script>alert(1)</script>" not in page
+
+def test_adult_video_lesson_and_level_filter(app_client):
+    client, db, actor = app_client
+    form = _form(title="Using smartphones", lesson_slug="smartphone-basics",
+                 language="Tiv")
+    assert client.post("/admin/videos/create", data=form).status_code == 302
+    assert client.post("/admin/videos/1/visibility", data={
+        "csrf_token":"video-test-token","status":"published"}).status_code == 302
+    assert b"Using smartphones" in client.get("/videos/?level=Adult+Education").data
+    assert b"Using smartphones" not in client.get("/videos/?level=Primary+4").data
+    assert b"Using smartphones" in client.get("/learn/smartphone-basics").data
