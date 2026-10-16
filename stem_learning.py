@@ -36,7 +36,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 .video-placeholder{padding:24px;border:0;background:#18394c;color:white;border-radius:12px;cursor:pointer;min-height:140px;width:100%;font:inherit}
 [data-video-player] iframe{aspect-ratio:16/9;width:100%;border:0;border-radius:12px}
 </style></head><body><main class="wrap">
-<header><strong>TechDialect STEM</strong><nav><a href="/learn/">All lessons</a> · <a href="/learn/progress">Progress</a> · <a href="{{ url_for('videos.index') }}">Video Tutorials</a></nav><small id="network-status" role="status" aria-live="polite"></small></header>
+<header><strong>TechDialect STEM</strong><nav><a href="/learn/">All lessons</a> · <a href="/learn/progress">Progress</a> · <a href="/videos/">Video Tutorials</a></nav><small id="network-status" role="status" aria-live="polite"></small></header>
 {% if lesson %}
 <article data-lesson-detail="{{ lesson.slug }}"><p class="tag">{{ lesson.subject }} · {{ lesson.level }}</p><h1>{{ lesson.title }}</h1>
 <h2>{{ lesson.concept }}</h2><p>{{ lesson.explanation }}</p>
@@ -88,7 +88,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
  target="_blank" rel="noopener noreferrer">Open on YouTube</a></div>
 {% endfor %}</section>
 {% else %}<p class="muted">No YouTube tutorials have been published for this lesson yet.
-<a href="{{ url_for('videos.index') }}">Browse the video library</a>.</p>{% endif %}
+<a href="/videos/">Browse the video library</a>.</p>{% endif %}
 </article>
 {% else %}
 <h1>Find your STEM learning pathway</h1>
@@ -106,7 +106,7 @@ h1{font-size:clamp(1.6rem,4vw,2.4rem)}.muted{color:#486476}.tag{font-size:.85rem
 <h2><a href="{{ url_for('stem.lesson_detail',slug=item.slug) }}">{{ item.title }}</a></h2>
 <p>{{ item.concept }}</p><small class="progress-indicator">Not practiced yet</small></article>{% endfor %}
 {% endif %}
-<script src="{{ url_for('videos.embed_script') }}" defer></script>
+<script src="/videos/embed.js" defer></script>
 <script>
 (function() {
   // Only the device stores progress. No names, accounts or learner details are sent.
@@ -225,7 +225,7 @@ h1{font-size:clamp(1.5rem,4vw,2.2rem)}.muted{color:#425e6e}
 </style></head><body><main>
 <p><a href="{{ url_for('stem.index') }}">← All learning pathways</a> ·
 <a href="{{ url_for('stem.progress_report') }}">Device progress</a> ·
-<a href="{{ url_for('videos.index') }}">Video Tutorials</a></p>
+<a href="/videos/">Video Tutorials</a></p>
 <p class="muted">{{ pathway.level }} · Starter learning pathway</p>
 <h1>{{ pathway.title }}</h1><p>{{ pathway.description }}</p>
 <p class="muted">Follow the lessons in order. Each activity has a quick understanding check.
@@ -306,6 +306,11 @@ def progress_script():
     response.headers["Cache-Control"] = "public, max-age=3600"
     return response
 
+def lesson_tutorials(slug):
+    from video_tutorials import published_for_lesson
+    return published_for_lesson(slug)
+
+
 def published_lesson_edition(slug, language):
     from smart_translation_system import get_db
     from lesson_editor import published_edition
@@ -350,8 +355,7 @@ def lesson_detail(slug):
         edition = published_lesson_edition(slug, selected)
         if edition:
             edition_choices = json.loads(edition["options_json"])
-    from video_tutorials import published_for_lesson
-    tutorials = published_for_lesson(slug)
+    tutorials = lesson_tutorials(slug)
     return render_template_string(PAGE, page_title=lesson["title"], lesson=lesson,
                                   languages=languages, selected_lang=selected, term=term,
                                   edition=edition, edition_choices=edition_choices,

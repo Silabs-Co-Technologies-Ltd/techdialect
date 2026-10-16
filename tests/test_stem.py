@@ -12,6 +12,7 @@ def test_routes(monkeypatch):
     monkeypatch.setattr(stem_learning, 'available_languages', lambda: ['Tiv'])
     monkeypatch.setattr(stem_learning, 'reviewed_term', lambda concept, lang: None)
     monkeypatch.setattr(stem_learning, 'published_lesson_edition', lambda slug, lang: None)
+    monkeypatch.setattr(stem_learning, 'lesson_tutorials', lambda slug: [])
     app = Flask(__name__)
     app.register_blueprint(stem_bp)
     client = app.test_client()
@@ -25,6 +26,7 @@ def test_language_selection_and_invalid_language(monkeypatch):
     monkeypatch.setattr(stem_learning, 'available_languages', lambda: ['Tiv'])
     monkeypatch.setattr(stem_learning, 'reviewed_term', lambda concept, lang: {'local_text':'Reviewed example','dialect':''} if lang=='Tiv' else None)
     monkeypatch.setattr(stem_learning, 'published_lesson_edition', lambda slug, lang: None)
+    monkeypatch.setattr(stem_learning, 'lesson_tutorials', lambda slug: [])
     app = Flask(__name__)
     app.register_blueprint(stem_learning.stem_bp)
     client = app.test_client()
@@ -55,6 +57,7 @@ def test_published_local_lesson_has_independent_quiz(monkeypatch):
         "options_json":'["Correct choice", "Other choice", "Another choice"]'
     }
     monkeypatch.setattr(stem_learning, "published_lesson_edition", lambda slug, lang: fake)
+    monkeypatch.setattr(stem_learning, "lesson_tutorials", lambda slug: [])
     app=Flask(__name__)
     app.register_blueprint(stem_learning.stem_bp)
     page=app.test_client().get("/learn/plant-food?language=Tiv")
@@ -69,6 +72,7 @@ def test_device_only_learning_progress_markup(monkeypatch):
     monkeypatch.setattr(stem_learning, 'available_languages', lambda: ['Tiv'])
     monkeypatch.setattr(stem_learning, 'reviewed_term', lambda concept, lang: None)
     monkeypatch.setattr(stem_learning, 'published_lesson_edition', lambda slug, lang: None)
+    monkeypatch.setattr(stem_learning, 'lesson_tutorials', lambda slug: [])
     app=Flask(__name__)
     app.register_blueprint(stem_learning.stem_bp)
     client=app.test_client()
