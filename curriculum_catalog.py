@@ -8,22 +8,22 @@ PATHWAYS = (
         "slug": "primary-4",
         "title": "Primary 4 STEM Foundations",
         "level": "Primary 4",
-        "description": "Explore fractions and the science of how plants make food.",
-        "lesson_slugs": ("fractions", "plant-food"),
+        "description": "Explore maths, living things and everyday physical science through seven lessons.",
+        "lesson_slugs": ("fractions", "place-value", "multiplication-arrays", "plant-food", "states-of-matter", "magnetism", "human-senses"),
     },
     {
         "slug": "primary-5",
         "title": "Primary 5 Discoveries",
         "level": "Primary 5",
-        "description": "Understand the water cycle and how computers receive information.",
-        "lesson_slugs": ("water-cycle", "computer-input"),
+        "description": "Build scientific, digital-safety and maths skills through seven lessons.",
+        "lesson_slugs": ("water-cycle", "force-motion", "soil-types", "food-chains", "computer-input", "decimals", "safe-internet"),
     },
     {
         "slug": "jss-1",
         "title": "JSS 1 Technology",
         "level": "JSS 1",
-        "description": "Discover the foundations of simple electrical circuits.",
-        "lesson_slugs": ("simple-circuits",),
+        "description": "Explore technology, measurements, algorithms and energy through six lessons.",
+        "lesson_slugs": ("simple-circuits", "integers", "measurements-units", "energy-transfer", "algorithm-steps", "weather-climate"),
     },
 )
 PATHWAY_BY_SLUG = {path["slug"]: path for path in PATHWAYS}

@@ -50,3 +50,9 @@ The learning page installs a service worker scoped only to `/learn/`. It pre-cac
 - A tutorial should be set to Public or Unlisted on YouTube and embedding must be allowed. Private or restricted videos cannot be played by visitors.
 - For young learners, administrators should use age-appropriate content, review subtitles and descriptions, and avoid relying on YouTube autoplay or collecting viewing analytics.
 - Persistent production storage is still necessary: SQLite on ephemeral Vercel storage will lose edits. This v7 draft is not yet production-approved.
+
+## Twenty English STEM starter lessons
+- The pilot curriculum now contains **20 English lessons**: seven Primary 4, seven Primary 5 and six JSS 1.
+- All 20 have one short multiple-choice practice check and offline-first public pages. Use the YouTube tutorial editor to connect your own published videos to any lesson.
+- Language translations are **not** auto-generated or automatically approved. Every localized lesson still goes through specialist science and language review.
+- Curriculum examples need classroom educator review and appropriate regional context before school adoption.

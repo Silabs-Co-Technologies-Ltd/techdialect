@@ -13,6 +13,21 @@ LESSONS = [
     {"slug":"water-cycle","title":"Where rain comes from","subject":"Basic Science","level":"Primary 5","concept":"Water cycle","explanation":"Sunlight warms water and some changes into water vapour. Vapour cools into tiny droplets in clouds. Droplets can fall as rain.","question":"What is water changing into vapour called?","options":["Evaporation","Freezing","Melting"],"answer":0},
     {"slug":"computer-input","title":"How computers receive information","subject":"Computing","level":"Primary 5","concept":"Input devices","explanation":"An input device lets a person send information to a computer. Keyboards, microphones and touchscreens are common examples.","question":"Which device can send typed text to a computer?","options":["Keyboard","Loudspeaker","Monitor"],"answer":0},
     {"slug":"simple-circuits","title":"Making a light shine","subject":"Technology","level":"JSS 1","concept":"Electric circuit","explanation":"A simple circuit needs an energy source, conductors and a device such as a bulb. A complete circuit allows electric current to flow.","question":"What usually stops a bulb shining in a simple circuit?","options":["An open switch","A closed switch","A complete wire connection"],"answer":0},
+    {"slug":"place-value","title":"Understanding place value","subject":"Mathematics","level":"Primary 4","concept":"Place value","explanation":"The position of a digit tells us its value. In 4,582, the digit 5 is in the hundreds place, so it represents 500.","question":"What does the digit 5 represent in 4,582?","options":["5","50","500"],"answer":2},
+    {"slug":"multiplication-arrays","title":"Multiplication using groups","subject":"Mathematics","level":"Primary 4","concept":"Multiplication","explanation":"Multiplication can show equal groups. Three rows with four seeds in each row contain twelve seeds altogether: 3 × 4 = 12.","question":"How many seeds are in three groups of four?","options":["12","7","16"],"answer":0},
+    {"slug":"states-of-matter","title":"Solids, liquids and gases","subject":"Basic Science","level":"Primary 4","concept":"States of matter","explanation":"Solids keep their shape, liquids take the shape of their container, and gases spread to fill available space. Water can exist as ice, liquid water or vapour.","question":"Which state of matter takes the shape of its container but has a fixed volume?","options":["Gas","Liquid","Solid"],"answer":1},
+    {"slug":"magnetism","title":"Discovering magnets","subject":"Basic Science","level":"Primary 4","concept":"Magnetism","explanation":"A magnet can attract certain materials such as iron. Magnets have north and south poles. Opposite poles attract while like poles repel.","question":"What happens when two north poles face each other?","options":["They repel","They always attract","They disappear"],"answer":0},
+    {"slug":"human-senses","title":"How we sense our world","subject":"Basic Science","level":"Primary 4","concept":"Five senses","explanation":"Our eyes help us see, ears detect sounds, the nose detects smells, the tongue helps us taste, and skin senses touch, temperature and pressure.","question":"Which sense organ helps us hear?","options":["Skin","Tongue","Ear"],"answer":2},
+    {"slug":"decimals","title":"Decimals in everyday money","subject":"Mathematics","level":"Primary 5","concept":"Decimals","explanation":"Decimals can represent parts of a whole. The decimal 0.5 means five tenths, which is the same amount as one half.","question":"Which fraction has the same value as 0.5?","options":["One tenth","One half","One quarter"],"answer":1},
+    {"slug":"force-motion","title":"Pushes, pulls and movement","subject":"Basic Science","level":"Primary 5","concept":"Forces and motion","explanation":"A force is a push or a pull. It can start, stop or change the direction or speed of a moving object. Kicking a ball applies a force.","question":"Which action applies a force to a stationary ball?","options":["Pushing it","Watching it","Naming it"],"answer":0},
+    {"slug":"soil-types","title":"Learning about soil","subject":"Basic Science","level":"Primary 5","concept":"Soil types","explanation":"Soil supports plants and holds water and air. Sandy soil has larger grains and usually drains water faster than clay-rich soil. Different crops need different soil conditions.","question":"Which soil generally drains water more quickly?","options":["Clay-rich soil","Sandy soil","Both always drain equally"],"answer":1},
+    {"slug":"food-chains","title":"Living things depend on each other","subject":"Basic Science","level":"Primary 5","concept":"Food chains","explanation":"A food chain shows how energy passes from one living thing to another. Plants use sunlight to make food. Animals may eat plants or other animals.","question":"Which organism often starts a simple land food chain?","options":["A lion","A hawk","A green plant"],"answer":2},
+    {"slug":"safe-internet","title":"Staying safe online","subject":"Computing","level":"Primary 5","concept":"Internet safety","explanation":"A strong password helps protect an account. Do not share passwords, private addresses or personal photographs with strangers online. Ask a trusted adult when something seems unsafe.","question":"What should you do if a stranger asks for your password online?","options":["Keep it private and tell a trusted adult","Send it to them","Post it publicly"],"answer":0},
+    {"slug":"integers","title":"Positive and negative numbers","subject":"Mathematics","level":"JSS 1","concept":"Integers","explanation":"Integers include positive whole numbers, negative whole numbers and zero. A temperature of minus 3 degrees can be written as −3.","question":"Which of these is an integer less than zero?","options":["4","−3","0"],"answer":1},
+    {"slug":"energy-transfer","title":"Energy changes form","subject":"Basic Science","level":"JSS 1","concept":"Energy transformation","explanation":"Energy can change from one form into another. An electric bulb changes electrical energy into light and also produces heat.","question":"What useful energy form does a switched-on light bulb produce?","options":["Sound only","Wind only","Light"],"answer":2},
+    {"slug":"algorithm-steps","title":"Giving a computer clear instructions","subject":"Computing","level":"JSS 1","concept":"Algorithms","explanation":"An algorithm is an ordered set of steps for solving a problem. A computer program follows instructions, so the order and clarity of each step matter.","question":"What is an algorithm?","options":["A sequence of steps for a task","A type of computer screen","A password"],"answer":0},
+    {"slug":"weather-climate","title":"Weather and climate are different","subject":"Basic Science","level":"JSS 1","concept":"Weather and climate","explanation":"Weather describes conditions such as rain, wind and temperature at a particular time and place. Climate describes typical weather patterns over many years.","question":"Which describes climate?","options":["Rain this afternoon","Typical rainfall over many years","A wind gust right now"],"answer":1},
+    {"slug":"measurements-units","title":"Measuring things accurately","subject":"Mathematics","level":"JSS 1","concept":"SI units","explanation":"Measurements use agreed units. Length can be measured in metres, mass in kilograms and time in seconds. Choosing the right unit makes results easier to compare.","question":"What is the SI unit for length?","options":["Kilogram","Second","Metre"],"answer":2},
 ]
 LESSON_BY_SLUG = {lesson["slug"]: lesson for lesson in LESSONS}
 from curriculum_catalog import PATHWAYS, PATHWAY_BY_SLUG, validate_pathways
@@ -363,12 +378,30 @@ def lesson_detail(slug):
 
 # Cache only public learning materials, not admin pages, credentials or private records.
 # Previously visited language editions are cached for offline revisiting.
-SW_VERSION = "techdialect-stem-v2"
-SW_JS = r"""const CACHE_NAME = "techdialect-stem-v2";
+SW_VERSION = "techdialect-stem-v3"
+SW_JS = r"""const CACHE_NAME = "techdialect-stem-v3";
 const PRECACHE = ["/learn/", "/learn/progress", "/learn/progress.js",
                   "/learn/path/primary-4", "/learn/path/primary-5", "/learn/path/jss-1",
-                  "/learn/plant-food", "/learn/fractions", "/learn/water-cycle",
-                  "/learn/computer-input", "/learn/simple-circuits"];
+                  "/learn/plant-food",
+                  "/learn/fractions",
+                  "/learn/water-cycle",
+                  "/learn/computer-input",
+                  "/learn/simple-circuits",
+                  "/learn/place-value",
+                  "/learn/multiplication-arrays",
+                  "/learn/states-of-matter",
+                  "/learn/magnetism",
+                  "/learn/human-senses",
+                  "/learn/decimals",
+                  "/learn/force-motion",
+                  "/learn/soil-types",
+                  "/learn/food-chains",
+                  "/learn/safe-internet",
+                  "/learn/integers",
+                  "/learn/energy-transfer",
+                  "/learn/algorithm-steps",
+                  "/learn/weather-climate",
+                  "/learn/measurements-units"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME)
     .then((cache) => cache.addAll(PRECACHE))
