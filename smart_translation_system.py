@@ -83,6 +83,9 @@ load_dotenv()
 SECRET_KEY           = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY must be configured. See .env.example.")
+if (os.getenv("VERCEL") or os.getenv("VERCEL_ENV")) and (
+        len(SECRET_KEY) < 32 or len(set(SECRET_KEY)) < 10):
+    raise RuntimeError("Vercel requires a strong, random SECRET_KEY of at least 32 characters.")
 HF_TOKEN             = os.getenv("HF_TOKEN")
 DAILY_GOAL           = int(os.getenv("DAILY_GOAL", "20"))
 SIMILARITY_THRESHOLD = 0.55
@@ -422,8 +425,10 @@ def db_insert(english, local, lang, category, source="manual", added_by=None, al
         )
         db.commit()
         return True
-    except sqlite3.IntegrityError:
-        return False
+    except Exception as exc:
+        if isinstance(exc, sqlite3.IntegrityError) or "unique constraint" in str(exc).lower():
+            return False
+        raise
 
 def db_update_translation(tid, local, category, editor_id):
     db = get_db()
@@ -1775,12 +1780,13 @@ def register():
         confirm  = request.form.get("confirm","")
         if not username or not email or not password:
             flash("All fields are required.","danger"); return redirect(url_for("register"))
-        if len(username) < 3:
-            flash("Username must be at least 3 characters.","danger"); return redirect(url_for("register"))
+        if not re.fullmatch(r"[\w.-]{3,40}", username):
+            flash("Username must be 3 to 40 letters, numbers, dots, dashes or underscores.","danger")
+            return redirect(url_for("register"))
         if password != confirm:
             flash("Passwords do not match.","danger"); return redirect(url_for("register"))
-        if len(password) < 6:
-            flash("Password must be at least 6 characters.","danger"); return redirect(url_for("register"))
+        if len(password) < 12 or len(password) > 256:
+            flash("Password must be 12 to 256 characters.","danger"); return redirect(url_for("register"))
         try:
             db = get_db()
             db.execute("INSERT INTO users (username,email,password_hash,role,approved,created_at) VALUES (?,?,?,'user',0,?)",
@@ -1788,8 +1794,11 @@ def register():
             db.commit()
             flash("Account created! An admin will approve it shortly. You'll be able to log in once approved.","success")
             return redirect(url_for("login"))
-        except sqlite3.IntegrityError:
-            flash("Username or email already exists.","danger"); return redirect(url_for("register"))
+        except Exception as exc:
+            if isinstance(exc, sqlite3.IntegrityError) or "unique constraint" in str(exc).lower():
+                flash("Username or email already exists.","danger")
+                return redirect(url_for("register"))
+            raise
     form_html = """<form method="POST"><h5 class="fw-bold mb-4">Create Account</h5>
     <div class="mb-3"><label class="form-label">Username</label><input type="text" name="username" class="form-control" required autofocus></div>
     <div class="mb-3"><label class="form-label">Email</label><input type="email" name="email" class="form-control" required></div>
@@ -1814,8 +1823,8 @@ def change_password():
     confirm_pw = request.form.get("confirm_password","")
     if not check_password_hash(u["password_hash"], current_pw):
         flash("Current password is incorrect.","danger")
-    elif len(new_pw) < 6:
-        flash("New password must be at least 6 characters.","danger")
+    elif len(new_pw) < 12 or len(new_pw) > 256:
+        flash("New password must be 12 to 256 characters.","danger")
     elif new_pw != confirm_pw:
         flash("New passwords do not match.","danger")
     else:
