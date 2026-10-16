@@ -18,6 +18,8 @@ def _init(db):
         example_text TEXT NOT NULL,
         question TEXT NOT NULL,
         options_json TEXT NOT NULL,
+        steps_json TEXT NOT NULL DEFAULT '[]',
+        task_text TEXT NOT NULL DEFAULT '',
         created_by INTEGER NOT NULL,
         science_reviewed_by INTEGER,
         language_reviewed_by INTEGER,
@@ -27,6 +29,12 @@ def _init(db):
         FOREIGN KEY (created_by) REFERENCES users(id),
         UNIQUE(lesson_slug, language, dialect)
     )""")
+    # Upgrade existing SQLite installations without clearing reviewed editions.
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(stem_editions)").fetchall()}
+    if "steps_json" not in columns:
+        db.execute("ALTER TABLE stem_editions ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]'")
+    if "task_text" not in columns:
+        db.execute("ALTER TABLE stem_editions ADD COLUMN task_text TEXT NOT NULL DEFAULT ''")
     db.commit()
 
 def published_edition(db, slug, language):
@@ -43,7 +51,7 @@ main{max-width:850px;margin:2rem auto;padding:1rem}section{background:white;bord
 label{display:block;margin:.8rem 0 .2rem;font-weight:600}input,textarea,select{box-sizing:border-box;width:100%;padding:.7rem;font:inherit}
 button{padding:.7rem 1rem;background:#005b7b;color:white;border:0;border-radius:8px;margin:.4rem}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid orange}
 small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editorial Studio</h1>
-<p>Language and science reviews must be completed by different assigned specialists before publication.</p>
+<p>Technical accuracy and language reviews must be completed by different assigned specialists before publication. Adult technology lessons must also include reviewed practical steps.</p>
 {% if is_admin %}<p><a href="{{ url_for('reviewers.index') }}">Manage reviewers</a></p>{% endif %}
 {% if is_admin %}<section><h2>Create or replace an unpublished lesson edition</h2>
 <form method="post" action="{{ url_for('lesson_editor.save') }}">
@@ -55,11 +63,18 @@ small{color:#456}</style><main><a href="/learn/">← Learning</a><h1>STEM Editor
 <label for="explain">Reviewed explanation</label><textarea id="explain" name="explanation" maxlength="3000" required></textarea>
 <label for="example">Local example</label><textarea id="example" name="example_text" maxlength="1000" required></textarea>
 <label for="question">Quiz question</label><textarea id="question" name="question" maxlength="500" required></textarea>
+<label for="steps">Reviewed practical steps (one per line, required for adult lessons)</label>
+<textarea id="steps" name="steps_text" maxlength="2000" rows="4" placeholder="Describe each step in the selected language"></textarea>
+<label for="task">Reviewed practice activity (required for adult lessons)</label>
+<textarea id="task" name="task_text" maxlength="600" rows="2"></textarea>
 <label for="options">Three answer choices, one per line (first one must be correct)</label><textarea id="options" name="options" maxlength="1000" required></textarea>
 <button>Save draft for review</button></form></section>{% endif %}
 {% for x in editions %}<section><h2>{{ x.lesson_slug }} · {{ x.language }}</h2>
 <p>{{ x.explanation }}</p>
-<small>Science: {{ 'reviewed' if x.science_reviewed_by else 'pending' }} · Language: {{ 'reviewed' if x.language_reviewed_by else 'pending' }} · {{ 'published' if x.published_at else 'unpublished' }}</small>
+{% if x.steps_json and x.steps_json != '[]' %}<h3>Practical steps for review</h3><p>{{ x.steps_json }}</p>{% endif %}
+{% if x.task_text %}<h3>Practice activity</h3><p>{{ x.task_text }}</p>{% endif %}
+<h3>Quiz</h3><p>{{ x.question }} · {{ x.options_json }}</p>
+<small>Technical/science: {{ 'reviewed' if x.science_reviewed_by else 'pending' }} · Language: {{ 'reviewed' if x.language_reviewed_by else 'pending' }} · {{ 'published' if x.published_at else 'unpublished' }}</small>
 {% if not x.published_at %}
 {% if can_science and x.created_by != actor_id and x.language_reviewed_by != actor_id and not x.science_reviewed_by %}
 <form method="post" action="{{ url_for('lesson_editor.action', edition_id=x.id,kind='science') }}">
@@ -107,19 +122,23 @@ def save():
     example=request.form.get("example_text","").strip()
     question=request.form.get("question","").strip()
     choices=[s.strip() for s in request.form.get("options","").splitlines() if s.strip()]
-    if slug not in LESSON_BY_SLUG or language not in available_editor_languages() or not explanation or not example or not question or len(choices)!=3 or any([len(language)>100,len(dialect)>100,len(explanation)>3000,len(example)>1000,len(question)>500,any(len(x)>250 for x in choices)]):
+    steps=[item.strip() for item in request.form.get("steps_text","").splitlines() if item.strip()]
+    task=request.form.get("task_text","").strip()
+    if slug not in LESSON_BY_SLUG or language not in available_editor_languages() or not explanation or not example or not question or len(choices)!=3 or any([len(language)>100,len(dialect)>100,len(explanation)>3000,len(example)>1000,len(question)>500,len(task)>600,len(steps)>8,any(len(x)>250 for x in choices),any(len(x)>300 for x in steps)]):
         abort(400)
+    if LESSON_BY_SLUG[slug]["level"] == "Adult Education" and (not steps or not task):
+        abort(400, description="Adult technology lessons need reviewed practical steps and an activity.")
     # Published editions must not be silently overwritten. Drafts reset all reviews on changes.
     existing=db.execute("SELECT id,published_at FROM stem_editions WHERE lesson_slug=? AND language=? AND dialect=?",(slug,language,dialect)).fetchone()
     if existing and existing["published_at"]:
         abort(409,description="Published editions are immutable; create a new version in a future revision.")
     now=datetime.datetime.now(datetime.timezone.utc).isoformat()
     if existing:
-        db.execute("""UPDATE stem_editions SET explanation=?,example_text=?,question=?,options_json=?,created_by=?,created_at=?,science_reviewed_by=NULL,language_reviewed_by=NULL
-            WHERE id=?""",(explanation,example,question,json.dumps(choices),user["id"],now,existing["id"]))
+        db.execute("""UPDATE stem_editions SET explanation=?,example_text=?,question=?,options_json=?,steps_json=?,task_text=?,created_by=?,created_at=?,science_reviewed_by=NULL,language_reviewed_by=NULL
+            WHERE id=?""",(explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,user["id"],now,existing["id"]))
     else:
-        db.execute("""INSERT INTO stem_editions(lesson_slug,language,dialect,explanation,example_text,question,options_json,created_by,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?)""",(slug,language,dialect,explanation,example,question,json.dumps(choices),user["id"],now))
+        db.execute("""INSERT INTO stem_editions(lesson_slug,language,dialect,explanation,example_text,question,options_json,steps_json,task_text,created_by,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(slug,language,dialect,explanation,example,question,json.dumps(choices),json.dumps(steps,ensure_ascii=False),task,user["id"],now))
     db.commit()
     return redirect(url_for("lesson_editor.index"))
 
